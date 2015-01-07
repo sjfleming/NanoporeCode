@@ -4,9 +4,10 @@ function plot_pretty(sigdata, trange, filter, channels)
 %   Takes a SignalData object and a time range as input.
 %   Stephen Fleming, September 19, 2014
 
-    % downsample to about 500000 points
+    % downsample to about 200000 points
+    pt = 200000;
     n = round((trange(2)-trange(1))/sigdata.si); % # data points
-    newSampleFreq = min([(500000/n)*(1/sigdata.si), filter*10, 1/sigdata.si]); % 5e6 points, or 10x oversampling, or full sampling, whichever is less
+    newSampleFreq = min([(pt/n)*(1/sigdata.si), filter*10, 1/sigdata.si]); % 5e6 points, or 10x oversampling, or full sampling, whichever is less
     for i=1:numel(channels)
         [data, ~] = downsample(sigdata,channels(i),trange,filter,newSampleFreq); % filter at 1kHz too
         d{i} = data;
@@ -41,7 +42,7 @@ function plot_pretty(sigdata, trange, filter, channels)
     title(t,'FontSize',24)
     annotation('textbox', [0.75 0.87 0 0], 'String', name, 'FontSize', 20);
     xlim([trange(1), trange(2)])
-    ylim([min(dmed{1})-20,max(dmed{1})+20])
+    ylim([min(0,min(dmed{1})-20),max(dmed{1})+20])
     set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
     set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
     set(h,'Position',[100 500 1000 400]) % size the figure
