@@ -165,8 +165,11 @@ function pv = pv_launch(s)
             name = [pv.data.filename(65:68) '\_' pv.data.filename(70:71) '\_' pv.data.filename(73:74) '\_' pv.data.filename(76:end-4)];
             assignin('base','name',name);
             assignin('base','tr',tr);
-            plot_squiggles(discreteData, V, name, tr); % plot the level information
-            plot_level_duration(discreteData, V, name, tr); % plot step duration distribution
+            figure(2)
+            h = get(gca,'Title');
+            title = get(h,'String');
+            plot_squiggles(discreteData, name, tr, title); % plot the level information
+            plot_level_duration(discreteData, name, tr, title); % plot step duration distribution
             file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
                 pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' pv.data.filename(76:end-4) ...
                 '_discreteData_' num2str(round(tr(1))) '.mat'];
