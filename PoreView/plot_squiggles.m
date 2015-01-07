@@ -1,4 +1,4 @@
-function plot_squiggles(discreteData, V, name, tr)
+function plot_squiggles(discreteData, name, tr, t)
 %PLOT_SQUIGGLES Makes a print-worthy plot of level data at each base
 %   plot_squiggles(discreteData, V, name)
 %   Takes a discreteData struct and the applied voltage and file name.
@@ -14,7 +14,7 @@ function plot_squiggles(discreteData, V, name, tr)
     plot(discreteData.levels,'x')
     xlabel('Level','FontSize',28)
     ylabel('Current (pA)','FontSize',28)
-    title(['Levels: E5/50mer, ' num2str(V) 'mV, 0.2mM ATP, 2mM ADPNP'],'FontSize',24)
+    title(['Levels: ' t],'FontSize',24)
     annotation('textbox', [0.72 0.85 0 0], 'String', [name  '\newline' num2str(tr(1),3) '-' num2str(tr(2),3) 's'], 'FontSize', 20);
     xlim([0 numel(discreteData.levels)+1])
     ylim([0,max(discreteData.levels)+10])
