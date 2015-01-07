@@ -1078,6 +1078,9 @@ classdef PoreView < handle
                 end
                 % set the axes color order
                 set(obj.psigs(i).axes,'ColorOrder',CO);
+                try
+                    set(obj.psigs(i).axes,'ColorOrderIndex',1);
+                end
                 
                 % get the plot handles
                 hps = plot(obj.psigs(i).axes,d(:,1),d(:,obj.psigs(i).sigs));
