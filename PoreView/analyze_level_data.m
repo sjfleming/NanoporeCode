@@ -4,9 +4,9 @@ function [discreteData, V] = analyze_level_data(sigdata, trange)
 %   discretize the data.
 %   Stephen Fleming, September 23, 2014
     
-    % Low pass filter and downsample event to about 50000 points (for 30 levels)
+    % Low pass filter and downsample event to about 100000 points (for 30 levels)
     display('Finding discrete levels:')
-    fs = 50000 / ((trange(2)-trange(1))/(sigdata.si)) / sigdata.si;
+    fs = 100000 / ((trange(2)-trange(1))/(sigdata.si)) / sigdata.si;
     f = fs/10;
     display(['Filtering at ' num2str(f) 'Hz and downsampling to ' num2str(fs) 'Hz...'])
     [currentData, unfilteredCurrent] = downsample(sigdata,2,trange,f,fs);
@@ -46,8 +46,10 @@ function [discreteData, V] = analyze_level_data(sigdata, trange)
     for i = 2:numel(inds)-1
         [~,pValues(i,2)] = kstest2(unfilteredCurrent(inds(i-1):inds(i)),unfilteredCurrent(inds(i):inds(i+1)));
     end
-    maxlevels = 40; % set a hard cutoff for maximum number of levels that can be found
-    while or(and(worsts(end,2) > 1e-15, size(pValues,1) > 2), size(pValues,1) > maxlevels) % iterate until the largest p value falls below cutoff
+    maxlevels = 50; % set a hard cutoff for maximum number of levels that can be found
+    pCutoff = 1e-80; % good for data with extreme 1/f noise
+    % pCutoff = 1e-15; % good for low-noise data
+    while or(and(worsts(end,2) > pCutoff, size(pValues,1) > 2), size(pValues,1) > maxlevels) % iterate until the largest p value falls below cutoff
         [pBad,indsind] = max(pValues(:,2)); % find worst p-value
         worsts(end+1,:) = [numel(inds) pBad]; % keep track of it
         inds(indsind) = [];
