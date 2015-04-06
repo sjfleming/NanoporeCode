@@ -49,16 +49,16 @@ function plot_noise(sigdata, trange)
         % make a new plot figure, leave menu bar
         hf = figure('Name','Noise Power Spectrum','NumberTitle','off');
 
-        % Build a new color map
-        CO = [  0.0 0.2 0.7;...
-                0.0 0.5 0.0;...
-                0.7 0.1 0.1;...
-                0.0 0.6 0.6;...
-                0.5 0.0 0.5;...
-                0.6 0.6 0.3  ];
-
-        % Set the color order 
-        set(hf, 'DefaultAxesColorOrder', CO);
+%         % Build a new color map
+%         CO = [  0.0 0.2 0.7;...
+%                 0.0 0.5 0.0;...
+%                 0.7 0.1 0.1;...
+%                 0.0 0.6 0.6;...
+%                 0.5 0.0 0.5;...
+%                 0.6 0.6 0.3  ];
+% 
+%         % Set the color order 
+%         set(hf, 'DefaultAxesColorOrder', CO);
         
         % and make axes
         ax = axes('Parent',hf,'XScale','log','YScale','log',...
@@ -67,9 +67,14 @@ function plot_noise(sigdata, trange)
         
         % scale x axis
         set(ax,'XLim',[1 freqs(imax)]);
+        set(gca,'FontSize',20)
+        set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
+        set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
+        set(gcf,'Position',[100 500 800 400]) % size the figure
         % grid
         grid on
         grid minor
+        box on
         % labels
         title('Noise Power Spectrum');
         ylabel('Power (nA^2/Hz)')
@@ -79,6 +84,9 @@ function plot_noise(sigdata, trange)
     % bring figure to front
     figure(hf);
     % and plot
-    plot(freqs(1:imax)',dfft(1:imax,:));
+    %plot(freqs(1:imax)',dfft(1:imax,:));
+    plot(freqs(1:imax)',dfft(1:imax,1));
+    name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
+    annotation('textbox', [0.75 0.9 0 0], 'String', name, 'FontSize', 20);
 end
 

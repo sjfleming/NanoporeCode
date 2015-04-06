@@ -1,4 +1,4 @@
-function plot_pretty(sigdata, trange, filter, channels)
+function plot_pretty(sigdata, trange, filter, channels, t)
 %PLOT_PRETTY Makes a print-worthy plot
 %   plot_pretty(sigdata, trange, filter, channels)
 %   Takes a SignalData object and a time range as input.
@@ -38,7 +38,7 @@ function plot_pretty(sigdata, trange, filter, channels)
     xlabel('Time (s)','FontSize',28)
     ylabel('Current (pA)','FontSize',28)
     name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
-    t = inputdlg('Enter title:','Input');
+    
     title(t,'FontSize',24)
     annotation('textbox', [0.75 0.87 0 0], 'String', name, 'FontSize', 20);
     xlim([trange(1), trange(2)])
@@ -46,6 +46,19 @@ function plot_pretty(sigdata, trange, filter, channels)
     set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
     set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
     set(h,'Position',[100 500 1000 400]) % size the figure
+    set(gca,'FontSize',24)
+    
+    figure(3)
+    clf(3)
+    h = gcf;
+    plot(time-time(1),dmed{1})
+    xlabel('Time (s)','FontSize',28)
+    ylabel('Current (pA)','FontSize',28)
+    xlim([0, trange(2)-trange(1)])
+    ylim([min(0,min(dmed{1})-10),max(dmed{1})+10])
+    set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
+    set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
+    set(h,'Position',[100 300 1000 400]) % size the figure
     set(gca,'FontSize',24)
     
 end

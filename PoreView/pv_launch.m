@@ -38,16 +38,23 @@ function pv = pv_launch(s)
             
             if numel(strs) < 2
                 return
+            elseif numel(strs)==3 % band pass
+                params(1) = str2double(strs{2});
+                params(2) = str2double(strs{3});
+                param = 1;
+            else
+                param = str2double(strs{2});
+                if isnan(param) || param <= 0
+                    return
+                end
             end
             
-            param = str2double(strs{2});
-            if isnan(param) || param <= 0
-                return
-            end
-
             switch strs{1}
                 case 'lp'
                     filtname = sprintf('Low-pass (%d Hz)', param);
+                    fsigs = pv.data.addVirtualSignal(@(d) filt_lp(d,4,param),filtname);
+                case 'lpb'
+                    filtname = sprintf('Low-pass Bessel (%d Hz)', param);
                     fsigs = pv.data.addVirtualSignal(@(d) filt_lp(d,4,param),filtname);
                 case 'hp'
                     filtname = sprintf('High-pass (%d Hz)', param);
@@ -55,6 +62,9 @@ function pv = pv_launch(s)
                 case 'med'
                     filtname = sprintf('Median (%d pts)', param);
                     fsigs = pv.data.addVirtualSignal(@(d) filt_med(d,param),filtname);
+                case 'band'
+                    filtname = sprintf('Band-pass (%d Hz)', params);
+                    fsigs = pv.data.addVirtualSignal(@(d) filt_band(d,4,params),filtname);
                 otherwise
                     return
             end            
@@ -147,9 +157,11 @@ function pv = pv_launch(s)
                 % otherwise, do the full view
                 tr = pv.getView();
             end
+            t = inputdlg('Enter title:','Input');
             display(['Plotting time interval [' num2str(tr) ']'])
-            %plot_pretty(pv.data,tr,5000,[2,3]);
-            plot_pretty(pv.data,tr,5000,2);
+            %plot_pretty(pv.data,tr,1000,[2,3],t);
+            plot_pretty(pv.data,tr,1000,2,t);
+            %plot_pretty(pv.data,tr,2000,[2,3,6],t);
         
         elseif strcmp(e.Character,'l')
             % find discrete levels in data
@@ -159,7 +171,23 @@ function pv = pv_launch(s)
                 % otherwise, do the full view
                 tr = pv.getView();
             end
-            [discreteData, V] = analyze_level_data(pv.data,tr);
+            q = inputdlg('Re-plot event?');
+            if strcmp(q,'y')
+                t = inputdlg('Enter title:','Input');
+                display(['Plotting time interval [' num2str(tr) ']'])
+                plot_pretty(pv.data,tr,100,2,t);
+            end
+            % add filtered signals
+            if ~exist('f2','var')
+                f1 = pv.data.addVirtualSignal(@(d) filt_lpb(d,4,1000),'Low-pass Bessel 1kHz',[1,2]);
+                f2 = pv.data.addVirtualSignal(@(d) filt_med(d,51),'Median filtered',f1);
+            end
+            %fs = max(500, min(10000, 2e5 / ((tr(2)-tr(1))/(pv.data.si)) / pv.data.si)); % pick a sampling frequency
+            fs = 1000;
+            %decimation = round(1/pv.data.si/fs); % factor
+            %f3 = pv.data.addVirtualSignal(@(d) accumarray(1+floor((1:numel(d))/decimation)',d',[],@median)','Decimated, median filtered, low-pass Bessel 1kHz',f2);
+            %f3 = pv.data.addVirtualSignal(@(d) filt_decimate(d,decimation),'Decimated',f2);
+            [discreteData, V] = analyze_level_data2(pv.data,tr,f2,fs);
             assignin('base','discreteData',discreteData); % assign variable to workspace
             assignin('base','V',V);
             name = [pv.data.filename(65:68) '\_' pv.data.filename(70:71) '\_' pv.data.filename(73:74) '\_' pv.data.filename(76:end-4)];
@@ -201,20 +229,22 @@ function pv = pv_launch(s)
             % display the mean
             % between cursors
             tr = pv.getCursors();
-            [data,~] = downsample(pv.data,3,tr,1000,10000);
+            [data,~] = downsample(pv.data,2,tr,1000,10000);
+            V = mean(downsample(pv.data,3,tr,100,1000));
             m = mean(data,2);
             s = std(data,1,2);
-            display(['Mean =  ' num2str(m,3) ' ' char(177) ' ' num2str(s,3)])
+            display(['Mean =  ' num2str(m,3) ' ' char(177) ' ' num2str(s,3) ' pA'])
+            display(['Conductance =  ' num2str(m/V,3) ' nS'])
             
         elseif strcmp(e.Character,'x')
             % display conductance
             display('Showing conductance')
-            if ~exist('fcurrentSig','var')
+            %if ~exist('fcurrentSig','var')
                 filter = 1000; % Hz
                 fcurrentSig = pv.data.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',2); % signal 5
                 fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,3]); % signal 6
-            end
-            pv.setSignalPanel(3, fcondSig(1)); % show it
+            %end
+            pv.setSignalPanel(3, fcondSig(2)); % show it
             pv.autoscaleY();
         
         elseif strcmp(e.Character,'h')
@@ -222,15 +252,34 @@ function pv = pv_launch(s)
             % between cursors
             tr = pv.getCursors();
             display(['Creating histogram from [' num2str(tr) ']'])
-            filter = 1000; % Hz
             if ~exist('fcurrentSig','var')
-                filter = 1000; % Hz
+                filter = 10000; % Hz
                 rangeEdited = pv.data.addVirtualSignal(@(d) filt_rmrange(d,ranges),'Range-edited');
                 fcurrentSig = pv.data.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',rangeEdited(1)); % signal 5
                 fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,rangeEdited(2)]); % signal 6
             end
             channels = [fcurrentSig,fcondSig];
             histogram(pv.data,tr,filter,channels);
+            
+        elseif strcmp(e.Character,'q')
+            % play audio
+            tr = pv.getCursors();
+            r = round(1/(20000*pv.data.si));
+            display(['Playing back audio: [' num2str(tr) '], sampling rate ' num2str(1/pv.data.si/r)]);
+            sig = listdlg('PromptString','Select a signal:',...
+                'SelectionMode','single',...
+                'ListString',pv.data.getSignalList);
+            n = 1e6;
+            red = pv.data.getViewData(tr);
+            m = max(red(:,sig));
+            for i=round(tr(1)/pv.data.si):n:round(tr(2)/pv.data.si)
+                %display(['Playing: ' num2str(round((i*pv.data.si))) ' to ' num2str(round(min(i+n,round(tr(2)/pv.data.si))*pv.data.si))]);
+                d = pv.data.get(i:min(i+n,round(tr(2)/pv.data.si)),sig);
+                d = d/m; % normalize to 1
+                d = decimate(d,r);
+                sound = audioplayer(d,1/pv.data.si/r);
+                playblocking(sound);
+            end
             
         end
             
