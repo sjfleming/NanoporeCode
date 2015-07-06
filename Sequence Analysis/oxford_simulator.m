@@ -1,4 +1,4 @@
-function pA = oxford_simulator(seq,plotFlag)
+function pA = oxford_simulator(seq,model,plotFlag)
 
 % Takes in a sequence in the form of 'ATCGTTCAAAGC...' and plots what
 % Oxford's simulated squiggles would look like.
@@ -8,31 +8,18 @@ states = get_states(nt2int(seq), 5); % k=5 for k-mer
 
 % get the current from Oxford's models
 load('models.mat')
-pA = model_data{1}.level_mean(states);
-pA2 = model_data{3}.level_mean(states);
-pA3 = model_data{5}.level_mean(states);
-pA4 = model_data{7}.level_mean(states);
-
-% add on the adapter
-polyT = model_data{1}.level_mean(end);
-leader = [100 100 100 100 100 90 50 40 polyT polyT polyT polyT polyT polyT polyT polyT 38 45 50 72 75 75 75 60 48]'; % mostly made up for the abasics
-pA = [leader; pA];
+pA = model_data{model}.level_mean(states);
 
 % plot it
 if plotFlag==1
     figure(2)
-    %clf(2)
-    %hold on
-    axes('FontSize',20)
+    clf(2)
     plot(1:numel(pA),pA,'o--');
-%     hold on
-%     plot(1:numel(states),pA2,'or');
-%     plot(1:numel(states),pA3,'og');
-%     plot(1:numel(states),pA4,'ok');
-    ylim([0 120])
+    ylim([min(model_data{model}.level_mean) max(model_data{model}.level_mean)])
     title('Oxford Nanopore predicted "squiggle" from molecule','FontSize',20)
     xlabel('Base Number','FontSize',20)
     ylabel('Current (pA)','FontSize',20)
+    set(gca,'FontSize',22)
 end
 
 end

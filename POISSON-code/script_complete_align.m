@@ -84,9 +84,10 @@ set(gca,'FontSize',24)
 % the levels themselves
 
 figure(3)
-errorbar(positions,nanmean(levelsScaled,2)',nanstd(levelsScaled,1,2)','ko')
+clf(3)
+errorbar(positions,nanmean(levelsScaled*scaling+offset,2)',nanstd(levelsScaled*scaling+offset,1,2)','ko')
 hold on
-plot(positions,levelsScaled,'o-')
+plot(positions,levelsScaled*scaling+offset,'o-')
 ylabel('Scaled, measured current')
 xlabel('Position along lambda')
 xlim([positions(1)-5 positions(end)+5])
@@ -98,15 +99,15 @@ set(gca,'FontSize',24)
 % segments of interest
 clear segmentData n s
 delta = 0; % start's offset from first base
-segment = 'AAAACAAAA';
+% segment = 'AAAAATAAAAA';
 mer = 5;
-for i = 1:numel(segment)-mer+1
-    segmentData(i).sequence = segment(i:i+mer-1);
-end
+% for i = 1:numel(segment)-mer+1
+%     segmentData(i).sequence = segment(i:i+mer-1);
+% end
 %segmentData(1).sequence = 'GGGAA';
-% segmentData(1).sequence = 'CGGGCT';
-% segmentData(2).sequence = 'AGGGCT';
-% segmentData(3).sequence = 'GGGGCT';
+segmentData(1).sequence = 'AAAAA';
+segmentData(2).sequence = 'CCCCC';
+segmentData(3).sequence = 'TTTTT';
 % segmentData(4).sequence = 'TGGGCT';
 % segmentData(5).sequence = 'AAGGAA';
 % segmentData(6).sequence = 'ACGGAA';

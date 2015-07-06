@@ -3,7 +3,9 @@ function pv = pv_launch(s)
     %   This is a 'launcher' file for PoreView. It is designed to start an
     %   instance of PoreView in a specified folder and to give it the 
     %   keyboard callback behavior you want.
-
+    
+    global fcurrentSigNoSpikes
+    
     % this sets the default directory for File->Open
     if nargin < 1
         s = '/Users/Stephen/Documents/Stephen/Research/Data/Biopore/';
@@ -171,23 +173,17 @@ function pv = pv_launch(s)
                 % otherwise, do the full view
                 tr = pv.getView();
             end
-            q = inputdlg('Re-plot event?');
-            if strcmp(q,'y')
-                t = inputdlg('Enter title:','Input');
-                display(['Plotting time interval [' num2str(tr) ']'])
-                plot_pretty(pv.data,tr,100,2,t);
-            end
+            t = inputdlg('Enter title:','Input');
             % add filtered signals
-            if ~exist('f2','var')
-                f1 = pv.data.addVirtualSignal(@(d) filt_lpb(d,4,1000),'Low-pass Bessel 1kHz',[1,2]);
-                f2 = pv.data.addVirtualSignal(@(d) filt_med(d,51),'Median filtered',f1);
-            end
-            %fs = max(500, min(10000, 2e5 / ((tr(2)-tr(1))/(pv.data.si)) / pv.data.si)); % pick a sampling frequency
+            filterFreq = 100;
             fs = 1000;
-            %decimation = round(1/pv.data.si/fs); % factor
-            %f3 = pv.data.addVirtualSignal(@(d) accumarray(1+floor((1:numel(d))/decimation)',d',[],@median)','Decimated, median filtered, low-pass Bessel 1kHz',f2);
-            %f3 = pv.data.addVirtualSignal(@(d) filt_decimate(d,decimation),'Decimated',f2);
-            [discreteData, V] = analyze_level_data2(pv.data,tr,f2,fs);
+            if ~exist('f2','var')
+                f1 = pv.data.addVirtualSignal(@(d) filt_lpb(d,4,filterFreq),'Low-pass Bessel 100Hz',[1,2]);
+                f2 = pv.data.addVirtualSignal(@(d) filt_med(d,51),'Median filtered',f1);
+                assignin('base','f2',f2);
+            end
+            display(['Data filtered at ' num2str(filterFreq) 'Hz and downsampled to ' num2str(fs) 'Hz.'])
+            [discreteData, V] = analyze_level_data2(pv.data,tr,f2,fs,t);
             assignin('base','discreteData',discreteData); % assign variable to workspace
             assignin('base','V',V);
             name = [pv.data.filename(65:68) '\_' pv.data.filename(70:71) '\_' pv.data.filename(73:74) '\_' pv.data.filename(76:end-4)];
@@ -235,6 +231,7 @@ function pv = pv_launch(s)
             s = std(data,1,2);
             display(['Mean =  ' num2str(m,3) ' ' char(177) ' ' num2str(s,3) ' pA'])
             display(['Conductance =  ' num2str(m/V,3) ' nS'])
+            display(['Voltage =  ' num2str(V) ' mV'])
             
         elseif strcmp(e.Character,'x')
             % display conductance
@@ -259,7 +256,7 @@ function pv = pv_launch(s)
                 fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,rangeEdited(2)]); % signal 6
             end
             channels = [fcurrentSig,fcondSig];
-            histogram(pv.data,tr,filter,channels);
+            histogram_pv(pv.data,tr,filter,channels);
             
         elseif strcmp(e.Character,'q')
             % play audio
@@ -279,6 +276,87 @@ function pv = pv_launch(s)
                 d = decimate(d,r);
                 sound = audioplayer(d,1/pv.data.si/r);
                 playblocking(sound);
+            end
+            
+        elseif strcmp(e.Character,'r')
+            % perform a low-voltage diffusion analysis
+            tr = pv.getCursors();
+            display(['Low-voltage diffusion anaylsis of data [' num2str(tr) ']'])
+            channel = fcurrentSigNoSpikes(2);
+            fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)*1000./d(:,3),[1 2]),'Conductance (nS)',[channel,3]); % signal 6
+            pv.setSignalPanel(1,fcondSig(1));
+            pv.refresh();
+            file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
+                pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' pv.data.filename(76:end-4) ...
+                '_event_info.mat'];
+            captureVoltage = 160; % in mV
+            holdingVoltageRange = [30 75]; % in mV
+            conductanceCutoff = 4; % in nS, if captured molecule conductance is greater than this, it's thrown out
+            events = low_voltage_diffusion(pv.data,tr,captureVoltage,holdingVoltageRange,conductanceCutoff,fcondSig);
+            assignin('base','events',events);
+            answer = input('Save data? (y/n): ','s');
+            if strcmp(answer,'y')
+                save(file,'events');
+                fprintf('\n')
+                display(['Saved data as ' file])
+            end
+            
+        elseif strcmp(e.Character,'g')
+            % generate 'spike' information from an ideal capacitive current spike
+            % if cursors, do those
+            tr = pv.getCursors();
+            if isempty(tr)
+                % otherwise, do the full view
+                tr = [];
+                display('No region selected!')
+            else
+                display(['Generating spike template from [' num2str(tr) ']'])
+                out = remove_spikes(pv.data,2,tr,[],0,1);
+                spike = out(2:end);
+                assignin('base','spike',spike);
+                spikeIndex = out(1);
+                assignin('base','spikeIndex',spikeIndex);
+                
+                % remove capacitive current spikes throughout data, creating new virtual signal
+                display('Removing capacitive current spikes.')
+                fcurrentSigNoSpikes = pv.data.addVirtualSignal(@(d) repmat(remove_spikes([d(:,1),d(:,2),d(:,3)],3,[],spike,spikeIndex,0),[1 3]), 'Spikes removed', [1 3 2]);
+            end
+            
+        elseif strcmp(e.Character,'z')
+            % have cursors select all
+            tr = [pv.data.tstart, pv.data.tend];
+            pv.setCursors(tr);
+            pv.setView(tr);
+            
+        elseif strcmp(e.Character,'w')
+            % automatic selection of level transitions
+            % filters
+            pCutoff = input('Type the desired p-value cutoff (e.g. 1e-80): ');
+            display('Applying filters...')
+            filter = 5; % in Hz
+            lp = pv.data.addVirtualSignal(@(d) filt_lpb(d,8,filter), ['Low pass ' num2str(filter) 'Hz'], 2);
+            med = pv.data.addVirtualSignal(@(d) filt_med(d,71), 'Median 71pt', lp);
+            % find the levels
+            levels = pv.data.addVirtualSignal(@(d) filt_discrete_levels(d, pCutoff), 'Levels', med);
+            pv.setSignalPanel(1,[med, levels]);
+            pv.refresh();
+            display('Done.')
+            
+        elseif strcmp(e.Character,'t')
+            % perform analysis of blockage data gathered at a series of
+            % voltages
+            tr = pv.getCursors();
+            display(['Voltage-dependent current blockage anaylsis of data [' num2str(tr) ']'])
+            file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
+                pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' pv.data.filename(76:end-4) ...
+                '_blockage_info.mat'];
+            blocks = blockage_analysis(pv.data,tr);
+            assignin('base','blocks',blocks);
+            answer = input('Save data? (y/n): ','s');
+            if strcmp(answer,'y')
+                save(file,'blocks');
+                fprintf('\n')
+                display(['Saved data as ' file])
             end
             
         end

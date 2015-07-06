@@ -28,12 +28,6 @@ function [Vs, Is] = plot_iv(filename)
     
     sz = size(d);
     
-    % make the voltages
-    Vs = linspace(-200,200,sz(3))';
-    if isfield(h,'setVoltages')
-        Vs = h.setVoltages';
-    end
-    
     % how much of the data do we want to use?
     % start with last 1/4, for now
     % indst = floor(sz(1)*0.75);
@@ -43,24 +37,37 @@ function [Vs, Is] = plot_iv(filename)
     
     % use the mean of the second quarter after throwing out low current
     % blockages
-    indst = floor(sz(1)*0.25);
+    inds = 3000:121900;
     % Get current values into a 1D/2D array, from 3D
     Is = zeros(sz(3),1);
     d = reshape(d,sz(1),sz(3));
-    cut = max(abs(d(indst:(2*indst),:)),[],1)/2;
+%     cut = max(abs(d(inds,:)),[],1)*96/100;
+%     for i = 1:sz(3)
+%         Is(i) = mean(d(abs(d(inds,i))>cut(i),i));
+%     end
+    
+    figure(9)
+    plot(d);
+    nind = input('Input start and end points as a vector: ');
     for i = 1:sz(3)
-        Is(i) = mean(d(abs(d(indst:end,i))>cut(i),i));
+        Is(i) = mean(d(nind(1):nind(2),i));
     end
+    
+    % make the voltages
+    if Is(1)<0
+        Vs = linspace(-200,200,sz(3))';
+    else
+        Vs = linspace(200,-200,sz(3))';
+    end
+    if isfield(h,'setVoltages')
+        Vs = h.setVoltages';
+    end
+    
     
     h = figure(8);
     clf(8)
-    if abs(Is(end))>abs(Is(1))
-        ylim([-1*Is(end) Is(end)])
-        ym = Is(end);
-    else
-        ylim([Is(1) -1*Is(1)])
-        ym = -1*Is(1);
-    end
+    ym = max(abs(Is))+0.01;
+    ylim([-1*ym ym])
     grid on
     box on
     line([0 0],[-1*ym ym],'Color','k')
@@ -71,8 +78,8 @@ function [Vs, Is] = plot_iv(filename)
     hs = [];
     % fit the lines
     %coeffs = polyfit(Vs(1:ceil(numel(Is)/2)),Is(1:ceil(numel(Is)/2)),1);
-    p1 = floor(numel(Is)/2);
-    p2 = ceil(numel(Is)*3/4);
+    p1 = floor(numel(Is)*1/4);
+    p2 = ceil(numel(Is)*2/4);
     coeffs = polyfit(Vs(p1:p2),Is(p1:p2),1);
     % draw the line
     ys = coeffs(1)*Vs + coeffs(2);
@@ -88,6 +95,7 @@ function [Vs, Is] = plot_iv(filename)
     set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
     set(h,'Position',[100 500 600 500]) % size the figure
     set(gca,'FontSize',24)
+    xlim([-200 200])
     
 %     hfig = figure('Name',sprintf('I-V Plot of %s',filename),'NumberTitle','off');
 %     
