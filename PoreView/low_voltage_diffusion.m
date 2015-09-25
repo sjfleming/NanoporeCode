@@ -46,8 +46,10 @@ function events = blockage_analysis(sigdata,tr,captureVoltage,holdingVoltageRang
         start = startInd * sigdata.si;
         
         % find exact end
-        ind1 = sigdata.findNext(@(x) x(:,fcondSig(1))>conductanceCutoff, startInd + ceil(80e-6/sigdata.si)); % find end totally out
-        devent = sigdata.get( (ind1-ceil(60e-6/sigdata.si)) : (ind1-ceil(30e-6/sigdata.si)), fcondSig(1) );
+        minTime = 400e-6;%80e-6;
+        ind1 = sigdata.findNext(@(x) x(:,fcondSig(1))>conductanceCutoff, startInd + ceil(minTime/sigdata.si)); % find end totally out
+        %devent = sigdata.get( (ind1-ceil(60e-6/sigdata.si)) : (ind1-ceil(30e-6/sigdata.si)), fcondSig(1) );
+        devent = sigdata.get( (ind1-ceil(300e-6/sigdata.si)) : (ind1-ceil(200e-6/sigdata.si)), fcondSig(1) ); % laggy high capacitance data
         cut = mean(devent) + 2*std(devent);
         ind = sigdata.findPrev(@(x) x(:,fcondSig(1))<cut, ind1); % backtrack to when current increase started
         finishInd = ind;

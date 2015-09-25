@@ -1,4 +1,4 @@
-function [filtdata] = filt_discrete_levels(d, pCutoff)
+function [filtdata] = filt_discrete_levels_bottom_up(d, pCutoff)
 %FILT_DISCRETE_LEVELS is a filter for the data which applies
 %   a level-finding algorithm based on Komogorov-Smirnov testing to 
 %   discretize the data.

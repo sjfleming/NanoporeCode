@@ -34,6 +34,7 @@ function plot_noise(sigdata, trange)
     end
     
     close(wh);
+    temp = input('Temperature in degrees C: '); % in degrees C
 
     % do the averaging
     dfft = dfft / nframes;
@@ -77,13 +78,25 @@ function plot_noise(sigdata, trange)
         box on
         % labels
         title('Noise Power Spectrum');
-        ylabel('Power (nA^2/Hz)')
+        ylabel('Current Noise (nA^2/Hz)')
         xlabel('Frequency (Hz)')
     end
 
     % bring figure to front
     figure(hf);
     % and plot
+    V = mean(sigdata.get(trange(1)/sigdata.si:(trange(1)/sigdata.si+1000),3));
+    I = mean(sigdata.get(trange(1)/sigdata.si:(trange(1)/sigdata.si+1000),2))*1000;
+    if I<20
+        conductance = 2;
+    else
+        conductance = I/V; % in nS
+    end
+    johnson = 4 * 1.38 * 10^-23 * (273.15+temp) * (conductance/10 * 10^-9 + 1/(500*10^6)) * 10^18; % adding parallel contribution of 500M feedback resistor
+    shot = 2 * 1.6 * 10^-19 * I * 10^-12 * 10^18;
+    line([1 1e5],johnson*ones(1,2),'Color','k','LineStyle','--')
+    %line([1 1e5],sqrt(johnson^2+shot^2)*ones(1,2),'Color','k','LineStyle','--')
+    hold on
     %plot(freqs(1:imax)',dfft(1:imax,:));
     plot(freqs(1:imax)',dfft(1:imax,1));
     name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];

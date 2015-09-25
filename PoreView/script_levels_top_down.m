@@ -5,8 +5,8 @@
 
 %% load data
 tic;
-% tr = pv.getCursors();
-tr = [900 1000];
+tr = pv.getCursors();
+%tr = [900 1000];
 data = pv.data.getByTime(tr);
 raw = pv.data.getViewData(tr);
 time = data(:,1);
@@ -222,3 +222,32 @@ set(gca,'FontSize',18)
 title('Squiggle data')
 
 toc;
+
+%% do it with the function find_discrete_levels (can do any amount)
+
+sigdata = pv.data;
+trange = pv.getCursors();
+medianRepeats = 5;
+cutoff = 0.05;
+finalFrequency = 200;
+
+[time,current,level_currents,level_timing] = find_discrete_levels(sigdata, trange, finalFrequency, medianRepeats, cutoff);
+
+figure(2)
+clf(2)
+plot(time,current,'k')
+hold on
+line(level_timing',(ones(2,1)*level_currents'),'LineWidth',2)
+ylabel('Current (pA)')
+xlabel('Time (s)')
+xlim([min(time) max(time)])
+ylim([30 100])
+set(gca,'FontSize',18)
+
+figure(3)
+clf(3)
+plot(level_currents,'o-')
+ylabel('Current (pA)')
+xlabel('Level number')
+ylim([30 100])
+set(gca,'FontSize',18)

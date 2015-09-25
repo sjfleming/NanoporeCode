@@ -57,7 +57,7 @@ function pv = pv_launch(s)
                     fsigs = pv.data.addVirtualSignal(@(d) filt_lp(d,4,param),filtname);
                 case 'lpb'
                     filtname = sprintf('Low-pass Bessel (%d Hz)', param);
-                    fsigs = pv.data.addVirtualSignal(@(d) filt_lp(d,4,param),filtname);
+                    fsigs = pv.data.addVirtualSignal(@(d) filt_lpb(d,4,param),filtname);
                 case 'hp'
                     filtname = sprintf('High-pass (%d Hz)', param);
                     fsigs = pv.data.addVirtualSignal(@(d) filt_hp(d,4,param),filtname);
@@ -161,30 +161,44 @@ function pv = pv_launch(s)
             end
             t = inputdlg('Enter title:','Input');
             display(['Plotting time interval [' num2str(tr) ']'])
-            %plot_pretty(pv.data,tr,1000,[2,3],t);
-            plot_pretty(pv.data,tr,1000,2,t);
+            plot_pretty(pv.data,tr,500,[7,3],t);
+            %plot_pretty(pv.data,tr,'none',[4,3],t);
             %plot_pretty(pv.data,tr,2000,[2,3,6],t);
         
         elseif strcmp(e.Character,'l')
             % find discrete levels in data
             % if cursors, do those
             tr = pv.getCursors();
-            if isempty(tr)
-                % otherwise, do the full view
-                tr = pv.getView();
-            end
-            t = inputdlg('Enter title:','Input');
-            % add filtered signals
-            filterFreq = 100;
-            fs = 1000;
-            if ~exist('f2','var')
-                f1 = pv.data.addVirtualSignal(@(d) filt_lpb(d,4,filterFreq),'Low-pass Bessel 100Hz',[1,2]);
-                f2 = pv.data.addVirtualSignal(@(d) filt_med(d,51),'Median filtered',f1);
-                assignin('base','f2',f2);
-            end
-            display(['Data filtered at ' num2str(filterFreq) 'Hz and downsampled to ' num2str(fs) 'Hz.'])
-            [discreteData, V] = analyze_level_data2(pv.data,tr,f2,fs,t);
+            medianRepeats = 5;
+            cutoff = 0.3;
+            finalFrequency = 1000;
+            pValue = 1e-300;
+            
+            display('Finding discrete levels:')
+            discreteData = find_discrete_levels(pv.data, tr, finalFrequency, medianRepeats, cutoff, pValue);
+
+            figure(2)
+            clf(2)
+            plot(discreteData.time,discreteData.current,'k')
+            hold on
+            line(discreteData.level_timing',(ones(2,1)*discreteData.level_means'),'LineWidth',2)
+            ylabel('Current (pA)')
+            xlabel('Time (s)')
+            %xlim([min(discreteData.time) max(discreteData.time)])
+            ylim([0 150])
+            set(gca,'FontSize',18)
+
+            figure(3)
+            clf(3)
+            plot(discreteData.level_means,'o-')
+            ylabel('Current (pA)')
+            xlabel('Level number')
+            ylim([30 100])
+            set(gca,'FontSize',18)
+            
             assignin('base','discreteData',discreteData); % assign variable to workspace
+            Vdata = pv.data.getViewData(tr);
+            V = round(mean(Vdata(:,3))/5)*5;
             assignin('base','V',V);
             name = [pv.data.filename(65:68) '\_' pv.data.filename(70:71) '\_' pv.data.filename(73:74) '\_' pv.data.filename(76:end-4)];
             assignin('base','name',name);
@@ -229,19 +243,15 @@ function pv = pv_launch(s)
             V = mean(downsample(pv.data,3,tr,100,1000));
             m = mean(data,2);
             s = std(data,1,2);
-            display(['Mean =  ' num2str(m,3) ' ' char(177) ' ' num2str(s,3) ' pA'])
+            display(['Mean =  ' num2str(m,5) ' ' char(177) ' ' num2str(s,3) ' pA'])
             display(['Conductance =  ' num2str(m/V,3) ' nS'])
-            display(['Voltage =  ' num2str(V) ' mV'])
+            display(['Voltage =  ' num2str(V,5) ' mV'])
             
         elseif strcmp(e.Character,'x')
             % display conductance
             display('Showing conductance')
-            %if ~exist('fcurrentSig','var')
-                filter = 1000; % Hz
-                fcurrentSig = pv.data.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',2); % signal 5
-                fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,3]); % signal 6
-            %end
-            pv.setSignalPanel(3, fcondSig(2)); % show it
+            fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[2,3]); % signal 6
+            pv.setSignalPanel(1, fcondSig(2)); % show it
             pv.autoscaleY();
         
         elseif strcmp(e.Character,'h')
@@ -291,7 +301,7 @@ function pv = pv_launch(s)
                 '_event_info.mat'];
             captureVoltage = 160; % in mV
             holdingVoltageRange = [30 75]; % in mV
-            conductanceCutoff = 4; % in nS, if captured molecule conductance is greater than this, it's thrown out
+            conductanceCutoff = 1.7; % in nS, if captured molecule conductance is greater than this, it's thrown out
             events = low_voltage_diffusion(pv.data,tr,captureVoltage,holdingVoltageRange,conductanceCutoff,fcondSig);
             assignin('base','events',events);
             answer = input('Save data? (y/n): ','s');
@@ -350,14 +360,41 @@ function pv = pv_launch(s)
             file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
                 pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' pv.data.filename(76:end-4) ...
                 '_blockage_info.mat'];
-            blocks = blockage_analysis(pv.data,tr);
+            cr = [0, 1, 2]; % sepcify conductance range of one blockage [low, high, open]
+            [blocks, open_pore] = blockage_analysis(pv.data,tr,cr);
             assignin('base','blocks',blocks);
+            assignin('base','open_pore',open_pore);
             answer = input('Save data? (y/n): ','s');
             if strcmp(answer,'y')
-                save(file,'blocks');
+                save(file,'blocks','open_pore');
                 fprintf('\n')
                 display(['Saved data as ' file])
             end
+            
+        elseif strcmp(e.Character,'e')
+            % put cursors at edges of the event that the cursors are
+            % currently inside
+            tr = pv.getCursors();
+            raw1 = abs(pv.data.getViewData([max(0,tr(1)-500),tr(1)]));
+            raw2 = abs(pv.data.getViewData([tr(2),min(pv.data.tend,tr(2)+500)]));
+            threshold = 0.5;
+            rawInd1 = find(raw1(:,2)>threshold,1,'last');
+            if isempty(rawInd1)
+                trange(1) = 0;
+            else
+                trange(1) = pv.data.findPrev(@(x) abs(x(:,2))>threshold, (raw1(rawInd1,1)+0.05)/pv.data.si) * pv.data.si;
+                if trange(1)<0
+                    trange(1) = raw1(rawInd1,1); % default to the raw guess if we get something wrong
+                end
+            end
+            rawInd2 = find(raw2(:,2)>threshold,1,'first');
+            if isempty(rawInd2)
+                trange(2) = pv.data.tend;
+            else
+                trange(2) = pv.data.findNext(@(x) abs(x(:,2))>threshold, (raw2(rawInd2,1)-0.05)/pv.data.si) * pv.data.si;
+            end
+            pv.setCursors(trange);
+            display(['Time = ' num2str(trange(2)-trange(1),5)])
             
         end
             
