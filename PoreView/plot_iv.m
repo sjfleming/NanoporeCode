@@ -52,17 +52,27 @@ function [Vs, Is] = plot_iv(filename)
     for i = 1:sz(3)
         Is(i) = mean(d(nind(1):nind(2),i));
     end
+    close(9);
     
     % make the voltages
     if Is(1)<0
-        Vs = linspace(-200,200,sz(3))';
+        %Vs = linspace(-200,200,sz(3))';
+        Vs = (-200:5:200)';
+        p1 = 41;
+        p2 = 61;
     else
-        Vs = linspace(200,-200,sz(3))';
+        %Vs = linspace(200,-200,sz(3))';
+        Vs = (200:-5:-200)';
+        p1 = 21;
+        p2 = 41;
     end
     if isfield(h,'setVoltages')
         Vs = h.setVoltages';
     end
-    
+    if numel(Is)<numel(Vs)
+        display('File was truncated...')
+        Is(end+1:numel(Vs)) = nan;
+    end
     
     h = figure(8);
     clf(8)
@@ -78,8 +88,8 @@ function [Vs, Is] = plot_iv(filename)
     hs = [];
     % fit the lines
     %coeffs = polyfit(Vs(1:ceil(numel(Is)/2)),Is(1:ceil(numel(Is)/2)),1);
-    p1 = floor(numel(Is)*1/4);
-    p2 = ceil(numel(Is)*2/4);
+    %p1 = floor(numel(Is)*1/4);
+    %p2 = ceil(numel(Is)*2/4);
     coeffs = polyfit(Vs(p1:p2),Is(p1:p2),1);
     % draw the line
     ys = coeffs(1)*Vs + coeffs(2);

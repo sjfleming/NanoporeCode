@@ -1,6 +1,6 @@
-function p = v1test() 
+function v1test() 
 
-    pd = PoreData('C:\Minion\Lambda-burnin\');
+    pd = PoreData('/Users/Stephen/Documents/Stephen/Research/Data/MinION/Lambda-73/');
 
     evind = 22;
 
@@ -11,7 +11,7 @@ function p = v1test()
     strc = seqrcomplement(pd.getSequence(evind,'c'));
     str = pd.getSequence(evind,'2d');
 
-    mex viterbikd.cpp
+    %mex viterbikd.cpp
 
     tic
     params = [];

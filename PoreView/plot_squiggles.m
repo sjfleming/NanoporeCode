@@ -20,7 +20,7 @@ function plot_squiggles(discreteData, name, tr, t)
     ylim([min(discreteData.level_means)-10,max(discreteData.level_means)+10])
     set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
     set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
-    set(h,'Position',[200 400 700 400]) % size the figure
+    set(h,'Position',[-920 736 700 400]) % size the figure
     set(gca,'FontSize',24)
 
 end

@@ -17,7 +17,7 @@ function out = remove_spikes(d,channel,trange,spike,indexV,isTemplate)
         clf(2)
         plot(data(1:end-1,1),dvdt,'r')
         hold on
-        plot(data(:,1),spike)
+        plot(data(:,1),spike*100)
         title('dV/dt and current spike')
         xlabel('Time (s)')
 

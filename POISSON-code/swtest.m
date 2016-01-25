@@ -1,4 +1,4 @@
-function swtest()
+function [seq1, p2] = swtest()
 
     seq1 = int2nt(randi(4,[1,4000]));
     seq2 = seq1;

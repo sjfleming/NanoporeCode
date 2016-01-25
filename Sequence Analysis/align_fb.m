@@ -1,18 +1,30 @@
-function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts)
+function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts, probs)
 
-    % so first we need observation (emission) probabilities
-    % assuming constant stddev for each level
-    obsstd = 5.0; % pA
-    stayprob = 0.5;
-    fwdprob = 0.5;
-    backprob = 0.02;
-    skipprob = 0.02;
+    dboff = 80;
+    
+    if nargin < 4
+        % so first we need observation (emission) probabilities
+        % assuming constant stddev for each level
+        obsstd = 2.0; % pA
+        stayprob = 0.2;
+        fwdprob = 1;
+        backprob = 0.05;
+        skipprob = 0.1;
 
-    % other transition probs
-    noiseprob = 0.001;
-    deepprob = 0.05;
-    deepdeep = 0.2;
-
+        % other transition probs
+        noiseprob = 0.1;
+        deepprob = 0;
+        deepdeep = 0;
+    else
+        obsstd = probs(1);
+        stayprob = probs(2);
+        fwdprob = probs(3);
+        backprob = probs(4);
+        skipprob = probs(5);
+        noiseprob = probs(6);
+        deepprob = probs(7);
+        deepdeep = probs(8);
+    end
 
     if nargin < 3
         dts = 0*lvls + 0.1;
@@ -30,7 +42,7 @@ function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts)
     
     E_model = normpdf(Mmat,Nmat,obsstd);
     % use exponential constant for prob of being random noise
-    E_noise = exppdf(repmat(dts',[M,1]),0.2);
+    E_noise = exppdf(repmat(dts',[M,1]),0.001);%1+0*E_model;
     % and add 50 pA for deep blockages
     E_deep = normpdf(Mmat,Nmat+50,obsstd);
     
@@ -58,7 +70,7 @@ function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts)
     %   D->0,      D->N,   D->D]
     
     T = [       T0,         noiseprob*TI,           deepprob*TI;
-                T0,                 0*TI,                    T0;
+                T0,                 0*TI,           deepprob*T0;
                 T0,         noiseprob*TI,           deepdeep*T0];
     
     % normalize each row to sum to 1
@@ -112,7 +124,7 @@ function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts)
     
     % create adjusted levels for deep blockages
     lvls_adj = lvls;
-    lvls_adj(mod_type==3) = lvls_adj(mod_type==3)+50;
+    lvls_adj(mod_type==3) = lvls_adj(mod_type==3)+dboff;
 
     lvl_accum = accumarray(kinds(mod_type~=2),lvls_adj(mod_type~=2),[M 1],@mean,nan);
     
@@ -122,24 +134,42 @@ function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts)
 
     modlvls = model_prediction(kinds);
     
+    figure(5)
+    clf(5)
+    
     subplot(3,1,1);
     plot(model_prediction,'o-','LineWidth',2)
     hold on
     plot(lvl_accum,'o-','LineWidth',2);
+    legend('Model','Data')
+    ylabel('Current (pA)')
+    xlabel('Model level')
+    set(gca,'FontSize',20)
+    title('Best fit of data to model')
     
     subplot(3,1,2);
-    modlvls(mod_type) = modlvls(mod_type) - 50;
+    modlvls(mod_type==3) = modlvls(mod_type==3) - dboff;
     plot(modlvls)
     for i=1:N
-        text(i,lvls(i),num2str(kinds(i)));
+        text(i,lvls(i),num2str(kinds(i)),'FontSize',14);
     end
     hold on
-    plot(lvls);
+    xx = 1:numel(modlvls);
+    plot(xx(mod_type==2),lvls(mod_type==2),'rx','MarkerSize',10)
+    plot(lvls,'-');
+    ylabel('Current (pA)')
+    xlabel('Measured level')
+    set(gca,'FontSize',20)
+    title('Matching each measured level to a model state')
     
     subplot(3,1,3);
-    imagesc(P)
+    imagesc(1.03.^(P/2)) % scales so image shows up well
     hold on
-    plot(1:N,ks,'r');
-    
+    plot(1:N,ks,'r','LineWidth',3);
+    title('Probability Matrix')
+    ylabel('State')
+    xlabel('Level Number')
+    set(gca,'FontSize',20)
+    %axis equal
     
 end

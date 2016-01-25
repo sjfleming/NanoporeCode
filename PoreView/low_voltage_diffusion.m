@@ -2,7 +2,7 @@
 % 4/13/15
 % Quickly analyzes low-voltage diffusion experiment data, thoroughly.
 
-function events = blockage_analysis(sigdata,tr,captureVoltage,holdingVoltageRange,conductanceCutoff,fcondSig)
+function events = low_voltage_diffusion(sigdata,tr,captureVoltage,holdingVoltageRange,conductanceCutoff,fcondSig)
     %% analyze
     
     % parameters
@@ -25,7 +25,7 @@ function events = blockage_analysis(sigdata,tr,captureVoltage,holdingVoltageRang
     % eliminate ones with wrong capture voltage, wrong holding voltage,
     % wrong captured conductance
     preVoltage = arrayfun(@(x) mean(data(max(1,x-20):max(1,x-10),3)), locs);
-    postVoltage = arrayfun(@(x) mean(data(x+20:x+30,3)), locs);
+    postVoltage = arrayfun(@(x) mean(data(x+5:min(size(data,1),x+30),3)), locs);
     capturedConductance = arrayfun(@(x) mean(data(max(1,x-5):max(1,x-2),2)*1000./data(max(1,x-5):max(1,x-2),3)), locs);
     logic = ( round(preVoltage/10)*10==captureVoltage & ...
         postVoltage>holdingVoltageRange(1) & postVoltage<holdingVoltageRange(2) & ...
@@ -42,14 +42,20 @@ function events = blockage_analysis(sigdata,tr,captureVoltage,holdingVoltageRang
         % find exact start
         ind = sigdata.findNext(@(x) x(:,3)<(holdingVoltageRange(2)+10), round(potentialStarts(i)/sigdata.si)); % find where we're low
         ind = sigdata.findPrev(@(x) x(:,3)>(captureVoltage-10), ind); % then go back to when we were high
+        if i==1 && ind==-1 % we can't find the start of the first event because file doesn't start with open pore
+            continue;
+        end
         startInd = ind;
         start = startInd * sigdata.si;
         
         % find exact end
-        minTime = 400e-6;%80e-6;
+        minTime = 80e-6;
         ind1 = sigdata.findNext(@(x) x(:,fcondSig(1))>conductanceCutoff, startInd + ceil(minTime/sigdata.si)); % find end totally out
-        %devent = sigdata.get( (ind1-ceil(60e-6/sigdata.si)) : (ind1-ceil(30e-6/sigdata.si)), fcondSig(1) );
-        devent = sigdata.get( (ind1-ceil(300e-6/sigdata.si)) : (ind1-ceil(200e-6/sigdata.si)), fcondSig(1) ); % laggy high capacitance data
+        if i==numel(potentialStarts) && ind1==-1
+            continue;
+        end
+        devent = sigdata.get( (ind1-ceil(60e-6/sigdata.si)) : (ind1-ceil(30e-6/sigdata.si)), fcondSig(1) );
+        %devent = sigdata.get( (ind1-ceil(300e-6/sigdata.si)) : (ind1-ceil(200e-6/sigdata.si)), fcondSig(1) ); % laggy high capacitance data
         cut = mean(devent) + 2*std(devent);
         ind = sigdata.findPrev(@(x) x(:,fcondSig(1))<cut, ind1); % backtrack to when current increase started
         finishInd = ind;
@@ -71,7 +77,7 @@ function events = blockage_analysis(sigdata,tr,captureVoltage,holdingVoltageRang
         events{i}.hold_cond_std = std(cAfter);
         events{i}.capture_conductance = mean(cBefore); % from 9ms before to 1ms before
         events{i}.capture_cond_std = std(cBefore);
-        events{i}.hold_voltage = round(mean(Vhold(1:50))*10)/10;
+        events{i}.hold_voltage = round(mean(Vhold(1:min(50,numel(Vhold))))*10)/10;
         events{i}.capture_voltage = round(mean(Vcapture));
         events{i}.kicked_out = min(Vhold)<5;
         

@@ -65,7 +65,7 @@ function plot_pretty(sigdata, trange, filter, channels, t)
 
     % Create a time axis
     time = linspace(trange(1),trange(2),size(data,1))';
-    %time = linspace(0,trange(2)-trange(1),numel(dmed{1}));
+    %time = linspace(0,trange(2)-trange(1),size(data,1))';
 
     % Get the reduced version of the unfiltered data as well
     raw = sigdata.getViewData(trange);
@@ -91,13 +91,13 @@ function plot_pretty(sigdata, trange, filter, channels, t)
     figure(2)
     clf(2)
     h = gcf;
-    plot(raw(:,1),raw(:,2)*1000,'Color',[0.85,0.85,0.85])
+    plot(raw(:,1),abs(raw(:,2))*1000,'Color',[0.85,0.85,0.85])
     %plot(raw(:,1)-raw(1,1),raw(:,2)*1000,'Color',[0.85,0.85,0.85])
     hold on
     color{1} = 'b';
     color{2} = 'r';
     for i = numel(channels):-1:1
-        plot(time,data(:,i),'Color',color{i})
+        plot(time,abs(data(:,i)),'Color',color{i})
     end
     xlabel('Time (s)','FontSize',28)
     ylabel('Current (pA)','FontSize',28)
@@ -111,7 +111,8 @@ function plot_pretty(sigdata, trange, filter, channels, t)
     title(t,'FontSize',24)
     annotation('textbox', [0.75 0.87 0 0], 'String', [name ' ' num2str(filter) 'Hz'], 'FontSize', 20);
     xlim([trange(1), trange(2)])
-    ylim([min(0,min(data(:,1))-20),max(data(:,1))+20])
+    %xlim([0, trange(2)-trange(1)])
+    ylim([min(0,min(abs(data(:,1)))-20),max(abs(data(:,1)))+20])
     set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
     set(gca,'OuterPosition',[0.01 0.01 0.98 0.98]) % fit everything in there
     set(h,'Position',[100 500 1000 400]) % size the figure

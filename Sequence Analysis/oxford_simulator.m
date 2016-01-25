@@ -14,12 +14,16 @@ pA = model_data{model}.level_mean(states);
 if plotFlag==1
     figure(2)
     clf(2)
-    plot(1:numel(pA),pA,'o--');
+    plot(1:numel(pA),pA,'o-');
     ylim([min(model_data{model}.level_mean) max(model_data{model}.level_mean)])
-    title('Oxford Nanopore predicted "squiggle" from molecule','FontSize',20)
-    xlabel('Base Number','FontSize',20)
-    ylabel('Current (pA)','FontSize',20)
-    set(gca,'FontSize',22)
+    title(seq,'FontSize',16,'FontName','Courier')
+    xlabel('Base Number')
+    xlim([-1 numel(seq)-2])
+    ylabel('Current (pA)')
+    set(gca,'FontSize',16)
+    set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
+    set(gca,'OuterPosition',[0.01 0.01 0.98 0.98]) % fit everything in there
+    set(gcf,'Position',[-1034 431 1021 278])
 end
 
 end

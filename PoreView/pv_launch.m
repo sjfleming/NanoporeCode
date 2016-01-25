@@ -34,7 +34,7 @@ function pv = pv_launch(s)
         if strcmp(e.Character,'f')
             % ask user what filters they want to add
 
-            str = inputdlg('Enter desired filter and frequency/param:      ','PoreView',1,{'lp 10000'});
+            str = inputdlg('Enter desired filter and frequency/param:      ','PoreView',1,{'lpb 1000'});
             
             strs = strsplit(str{1});
             
@@ -128,19 +128,19 @@ function pv = pv_launch(s)
         
         elseif strcmp(e.Character,'k')
             % remove a range of points between cursors
-            xlim = pv.getCursors();
-            if isempty(xlim)
+            xx = pv.getCursors();
+            if isempty(xx)
                 % cursors are invisible
                 return
             end
             
             % get average of endpoints, in a narrow range around them
-            y0s = mean(pv.data.getByTime(xlim(1),xlim(1)+0.001));
-            y1s = mean(pv.data.getByTime(xlim(2),xlim(2)-0.001));
+            y0s = mean(pv.data.getByTime(xx(1),xx(1)+0.001));
+            y1s = mean(pv.data.getByTime(xx(2),xx(2)-0.001));
             % and their average
             yave = mean([y0s; y1s]);
             % and add it to ranges
-            ranges(end+1,:) = [xlim yave(2:pv.data.nsigs+1)];
+            ranges(end+1,:) = [xx yave(2:pv.data.nsigs+1)];
             % update virtual signal
             range = pv.data.addVirtualSignal(@(d) filt_rmrange(d,ranges),'Range-edited');
             % and refresh visible points
@@ -148,7 +148,7 @@ function pv = pv_launch(s)
             pv.setSignalPanel(2, range(2));
             pv.refresh();
             % and display some stuff
-            fprintf('Removed %f to %f\n',xlim(1),xlim(2));
+            fprintf('Removed %f to %f\n',xx(1),xx(2));
             display(ranges)
             
         elseif strcmp(e.Character,'p')
@@ -159,81 +159,15 @@ function pv = pv_launch(s)
                 % otherwise, do the full view
                 tr = pv.getView();
             end
-            t = inputdlg('Enter title:','Input');
-            display(['Plotting time interval [' num2str(tr) ']'])
-            plot_pretty(pv.data,tr,500,[7,3],t);
-            %plot_pretty(pv.data,tr,'none',[4,3],t);
-            %plot_pretty(pv.data,tr,2000,[2,3,6],t);
+            util.doPlot(pv,tr);
         
         elseif strcmp(e.Character,'l')
             % find discrete levels in data
             % if cursors, do those
             tr = pv.getCursors();
-            medianRepeats = 5;
-            cutoff = 0.3;
-            finalFrequency = 1000;
-            pValue = 1e-300;
-            
-            display('Finding discrete levels:')
-            discreteData = find_discrete_levels(pv.data, tr, finalFrequency, medianRepeats, cutoff, pValue);
-
-            figure(2)
-            clf(2)
-            plot(discreteData.time,discreteData.current,'k')
-            hold on
-            line(discreteData.level_timing',(ones(2,1)*discreteData.level_means'),'LineWidth',2)
-            ylabel('Current (pA)')
-            xlabel('Time (s)')
-            %xlim([min(discreteData.time) max(discreteData.time)])
-            ylim([0 150])
-            set(gca,'FontSize',18)
-
-            figure(3)
-            clf(3)
-            plot(discreteData.level_means,'o-')
-            ylabel('Current (pA)')
-            xlabel('Level number')
-            ylim([30 100])
-            set(gca,'FontSize',18)
-            
-            assignin('base','discreteData',discreteData); % assign variable to workspace
-            Vdata = pv.data.getViewData(tr);
-            V = round(mean(Vdata(:,3))/5)*5;
-            assignin('base','V',V);
-            name = [pv.data.filename(65:68) '\_' pv.data.filename(70:71) '\_' pv.data.filename(73:74) '\_' pv.data.filename(76:end-4)];
-            assignin('base','name',name);
-            assignin('base','tr',tr);
-            figure(2)
-            h = get(gca,'Title');
-            title = get(h,'String');
-            plot_squiggles(discreteData, name, tr, title); % plot the level information
-            plot_level_duration(discreteData, name, tr, title); % plot step duration distribution
-            file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
-                pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' pv.data.filename(76:end-4) ...
-                '_discreteData_' num2str(round(tr(1))) '.mat'];
-            
-            % Add pulsing data if we have it
-            if pv.data.nsigs > 2 % we have pulsing channel
-                [pulses, candidates, distances] = pulse_analysis(pv.data, tr, discreteData, [0.005, -0.002]);
-                figure(2)
-                line(repmat(candidates',1,2)',repmat(get(gca,'ylim'),numel(candidates),1)','Color',[0 1 0],'LineStyle','-') % vertical lines
-                annotation('textbox', [0.8 0.85 0 0], 'String', [name ' ' num2str(numel(candidates)) '/' num2str(numel(pulses))], 'FontSize', 20);
-                pulse.times = pulses;
-                pulse.candidates = candidates;
-                pulse.distances = distances;
-                assignin('base','pulse',pulse);
-                answer = input('Save data? (y/n): ','s');
-                if strcmp(answer,'y')
-                    save(file,'discreteData','V','name','tr','pulse')
-                    display(['Saved data as ' file])
-                end
-            else
-                answer = input('Save data? (y/n): ','s');
-                if strcmp(answer,'y')
-                    save(file,'discreteData','V','name','tr')
-                    display(['Saved data as ' file])
-                end
-            end
+            finalFrequency = 10000;
+            pValue = -50;
+            util.doLevelAnalysis(pv,tr,finalFrequency,pValue);
             
         elseif strcmp(e.Character,'m')
             % display the mean
@@ -258,15 +192,7 @@ function pv = pv_launch(s)
             % do a current histogram
             % between cursors
             tr = pv.getCursors();
-            display(['Creating histogram from [' num2str(tr) ']'])
-            if ~exist('fcurrentSig','var')
-                filter = 10000; % Hz
-                rangeEdited = pv.data.addVirtualSignal(@(d) filt_rmrange(d,ranges),'Range-edited');
-                fcurrentSig = pv.data.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',rangeEdited(1)); % signal 5
-                fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,rangeEdited(2)]); % signal 6
-            end
-            channels = [fcurrentSig,fcondSig];
-            histogram_pv(pv.data,tr,filter,channels);
+            util.doCurrentHistogram(pv,tr);
             
         elseif strcmp(e.Character,'q')
             % play audio
@@ -291,25 +217,7 @@ function pv = pv_launch(s)
         elseif strcmp(e.Character,'r')
             % perform a low-voltage diffusion analysis
             tr = pv.getCursors();
-            display(['Low-voltage diffusion anaylsis of data [' num2str(tr) ']'])
-            channel = fcurrentSigNoSpikes(2);
-            fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)*1000./d(:,3),[1 2]),'Conductance (nS)',[channel,3]); % signal 6
-            pv.setSignalPanel(1,fcondSig(1));
-            pv.refresh();
-            file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
-                pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' pv.data.filename(76:end-4) ...
-                '_event_info.mat'];
-            captureVoltage = 160; % in mV
-            holdingVoltageRange = [30 75]; % in mV
-            conductanceCutoff = 1.7; % in nS, if captured molecule conductance is greater than this, it's thrown out
-            events = low_voltage_diffusion(pv.data,tr,captureVoltage,holdingVoltageRange,conductanceCutoff,fcondSig);
-            assignin('base','events',events);
-            answer = input('Save data? (y/n): ','s');
-            if strcmp(answer,'y')
-                save(file,'events');
-                fprintf('\n')
-                display(['Saved data as ' file])
-            end
+            util.doLowVoltageDiffusionAnalysis(pv,tr);
             
         elseif strcmp(e.Character,'g')
             % generate 'spike' information from an ideal capacitive current spike
@@ -326,10 +234,15 @@ function pv = pv_launch(s)
                 assignin('base','spike',spike);
                 spikeIndex = out(1);
                 assignin('base','spikeIndex',spikeIndex);
+                file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
+                    pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' ...
+                    pv.data.filename(76:end-4) '_spike.mat'];
+                save(file,'spike','spikeIndex');
+                display('Saved spike template.')
                 
                 % remove capacitive current spikes throughout data, creating new virtual signal
-                display('Removing capacitive current spikes.')
-                fcurrentSigNoSpikes = pv.data.addVirtualSignal(@(d) repmat(remove_spikes([d(:,1),d(:,2),d(:,3)],3,[],spike,spikeIndex,0),[1 3]), 'Spikes removed', [1 3 2]);
+                %display('Removing capacitive current spikes.')
+                %fcurrentSigNoSpikes = pv.data.addVirtualSignal(@(d) repmat(remove_spikes([d(:,1),d(:,2),d(:,3)],3,[],spike,spikeIndex,0),[1 3]), 'Spikes removed', [1 3 2]);
             end
             
         elseif strcmp(e.Character,'z')
@@ -338,69 +251,25 @@ function pv = pv_launch(s)
             pv.setCursors(tr);
             pv.setView(tr);
             
-        elseif strcmp(e.Character,'w')
-            % automatic selection of level transitions
-            % filters
-            pCutoff = input('Type the desired p-value cutoff (e.g. 1e-80): ');
-            display('Applying filters...')
-            filter = 5; % in Hz
-            lp = pv.data.addVirtualSignal(@(d) filt_lpb(d,8,filter), ['Low pass ' num2str(filter) 'Hz'], 2);
-            med = pv.data.addVirtualSignal(@(d) filt_med(d,71), 'Median 71pt', lp);
-            % find the levels
-            levels = pv.data.addVirtualSignal(@(d) filt_discrete_levels(d, pCutoff), 'Levels', med);
-            pv.setSignalPanel(1,[med, levels]);
-            pv.refresh();
-            display('Done.')
-            
         elseif strcmp(e.Character,'t')
             % perform analysis of blockage data gathered at a series of
             % voltages
             tr = pv.getCursors();
-            display(['Voltage-dependent current blockage anaylsis of data [' num2str(tr) ']'])
-            file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
-                pv.data.filename(65:68) pv.data.filename(70:71) pv.data.filename(73:74) '/' pv.data.filename(76:end-4) ...
-                '_blockage_info.mat'];
-            cr = [0, 1, 2]; % sepcify conductance range of one blockage [low, high, open]
-            [blocks, open_pore] = blockage_analysis(pv.data,tr,cr);
-            assignin('base','blocks',blocks);
-            assignin('base','open_pore',open_pore);
-            answer = input('Save data? (y/n): ','s');
-            if strcmp(answer,'y')
-                save(file,'blocks','open_pore');
-                fprintf('\n')
-                display(['Saved data as ' file])
-            end
+            util.doBlockageAnalysis(pv,tr);
             
         elseif strcmp(e.Character,'e')
             % put cursors at edges of the event that the cursors are
             % currently inside
             tr = pv.getCursors();
-            raw1 = abs(pv.data.getViewData([max(0,tr(1)-500),tr(1)]));
-            raw2 = abs(pv.data.getViewData([tr(2),min(pv.data.tend,tr(2)+500)]));
-            threshold = 0.5;
-            rawInd1 = find(raw1(:,2)>threshold,1,'last');
-            if isempty(rawInd1)
-                trange(1) = 0;
-            else
-                trange(1) = pv.data.findPrev(@(x) abs(x(:,2))>threshold, (raw1(rawInd1,1)+0.05)/pv.data.si) * pv.data.si;
-                if trange(1)<0
-                    trange(1) = raw1(rawInd1,1); % default to the raw guess if we get something wrong
-                end
-            end
-            rawInd2 = find(raw2(:,2)>threshold,1,'first');
-            if isempty(rawInd2)
-                trange(2) = pv.data.tend;
-            else
-                trange(2) = pv.data.findNext(@(x) abs(x(:,2))>threshold, (raw2(rawInd2,1)-0.05)/pv.data.si) * pv.data.si;
-            end
-            pv.setCursors(trange);
-            display(['Time = ' num2str(trange(2)-trange(1),5)])
+            util.doFindEventEdges(pv,tr);
             
         end
-            
+        
     end
-
+    
     % and set our all-important keyboard callback
     pv.setKeyboardCallback(@keyFn);
 end
+
+
 
