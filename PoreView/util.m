@@ -12,7 +12,7 @@ classdef util
             
         end
         
-        function doFindEvents(pv,minLength)
+        function events = doFindEvents(pv,minLength)
             
             % find all events (gaps in open pore) that are longer than
             % minLength
@@ -22,10 +22,19 @@ classdef util
             tr = [pv.data.tstart, pv.data.tend];
             del = 0.1; % in pA
             raw = pv.data.getViewData(tr);
-            lowCurrent = min(raw(:,2)*1000);
-            highCurrent = max(raw(:,2)*1000);
+            current = raw(:,2)*1000;
+            voltage = raw(:,3);
+            vx = 0:1:300;
+            hvoltage = hist(voltage,vx);
+            v1 = find(hvoltage>500,1,'last');
+            v2 = find(hvoltage(1:v1)<500,1,'last');
+            V = sum(hvoltage(v2:v1)*1.*vx(v2:v1))/sum(hvoltage(v2:v1)*1);
+            dt = raw(2,1)-raw(1,1);
+            clear raw;
+            lowCurrent = min(current);
+            highCurrent = max(current);
             xcurrent = lowCurrent-5:del:highCurrent+5;
-            hcurrent = hist(raw(:,2)*1000,xcurrent);
+            hcurrent = hist(current,xcurrent);
             i1 = find(hcurrent>50,1,'last');
             i2 = find(hcurrent(1:i1)<50,1,'last');
             g = figure(2);
@@ -41,7 +50,97 @@ classdef util
             % get mean open pore current
             mean_open = sum(hcurrent(i2:i1)*del.*xcurrent(i2:i1))/sum(hcurrent(i2:i1)*del);
             plot(mean_open,3*max(hcurrent(i2:i1)),'r*');
+            % find the periods with current blocked between open levels,
+            % and voltage high
+            blockEndInd = 1;
+            i = 1;
+            events = cell(0);
+            while ~isempty(blockEndInd)
+                % find a blockage
+                goodEvent = false;
+                endedManually = false;
+                goesBeyondFile = false;
+                voltageHighInd = find(voltage(blockEndInd:end) > 0.9*V, 1, 'first')+blockEndInd;
+                blockStartInd = find(current(voltageHighInd:end) < 0.8*mean_open, 1, 'first')+voltageHighInd;
+                if (isempty(blockStartInd))
+                    blockEndInd = [];
+                else
+                    blockEndInd = find(current(blockStartInd+2:end) > 0.9*mean_open, 1, 'first')+blockStartInd+2;
+                end
+                % check if the voltage changes before the end, if so,
+                % reject the event or change the endpoint
+                if (~isempty(blockEndInd))
+                    voltageDropInd = find(voltage(blockStartInd+10:blockEndInd)<0.7*V,1,'first')+blockStartInd+10;
+                    if (~isempty(voltageDropInd) && voltageDropInd < blockEndInd) % if the voltage does in fact drop before the end
+                        blockEndInd = voltageDropInd;
+                        endedManually = true;
+                    end
+                else
+                    voltageDropInd = find(voltage(blockStartInd+10:end)<0.7*V,1,'first')+blockStartInd+10;
+                    blockEndInd = voltageDropInd;
+                    if (~isempty(voltageDropInd))
+                        endedManually = true;
+                    else % blockEndInd and voltageDropInd are both nonexistent... the molecule goes past end of file
+                        goesBeyondFile = true;
+                    end
+                end
+                if (~isempty(blockStartInd))
+                    % time cutoff
+                    if (isempty(blockEndInd))
+                        duration = dt*(numel(current) - blockStartInd); % go to end if the molecule runs over
+                    else
+                        duration = dt*(blockEndInd - blockStartInd);
+                    end
+                    if (duration > minLength) % less than cutoff time, not real
+                        % look for abasic start
+                        start_current = mean(current(blockStartInd:(blockStartInd+0.05/dt)));
+                        if (start_current/mean_open > 0.45 && start_current/mean_open < 0.6)
+                            % yes, abasic start, but is there more?
+                            intoMoleculeInd = find(current(blockStartInd:blockEndInd)/mean_open<0.35,1,'first');
+                            if (~isempty(intoMoleculeInd) && intoMoleculeInd < blockEndInd-blockStartInd)
+                                goodEvent = true;
+                            end
+                        end
+                    end
+                end
+                % if it's a good event, save that info
+                if (goodEvent)
+                    events{i}.start_ind = blockStartInd;
+                    events{i}.end_ind = blockEndInd;
+                    events{i}.start_time = blockStartInd*dt;
+                    events{i}.end_time = blockEndInd*dt;
+                    events{i}.ended_manually = endedManually;
+                    events{i}.continues_past_end_of_file = goesBeyondFile;
+                    i = i + 1;
+                    display('real molecule found.');
+                end
+            end
             
+            % find the exact starts and ends based on the rough indices
+            display('refinement.');
+            for j = 1:numel(events)
+                % start
+                inds = events{j}.start_ind + [-2, 2];
+                inds = dt*inds / pv.data.si; % conversion from raw indices to data indices
+                full_current = pv.data.get(inds,2)*1000; % current in pA, complete data set
+                events{j}.start_ind = find(full_current<0.8*mean_open,1,'first')+inds(1);
+                % end
+                if (~events{j}.ended_manually && ~events{j}.continues_past_end_of_file)
+                    inds = events{j}.end_ind + [-2, 2];
+                    inds = dt*inds / pv.data.si; % conversion from raw indices to data indices
+                    full_current = pv.data.get(inds,2)*1000; % current in pA, complete data set
+                    events{j}.end_ind = find(full_current>0.9*mean_open,1,'first')+inds(1);
+                elseif (~events{j}.ended_manually && events{j}.continues_past_end_of_file)
+                    events{j}.end_ind = pv.data.ndata;
+                elseif events{j}.ended_manually
+                    inds = events{j}.end_ind + [-2, 2];
+                    inds = dt*inds / pv.data.si; % conversion from raw indices to data indices
+                    full_voltage = pv.data.get(inds,2)*1000; % current in pA, complete data set
+                    events{j}.end_ind = find(full_voltage<0.9*V,1,'first')+inds(1);
+                end
+                events{j}.start_time = events{j}.start_ind * pv.data.si;
+                events{j}.end_time = events{j}.end_ind * pv.data.si;
+            end
         end
         
         function doFindEventEdges(pv,tr)
@@ -131,10 +230,10 @@ classdef util
         function doLevelAnalysis(pv,tr,finalFrequency,pValue)
             
             display('Finding discrete levels:')
-            discreteData = find_discrete_levels(pv.data, 4, tr, finalFrequency, pValue);
+            discreteData = find_discrete_levels(pv.data, 2, tr, finalFrequency, pValue);
 
-            h = figure(2);
-            clf(2)
+            h = figure(4);
+            clf
             plot(discreteData.time,discreteData.current,'Color',[0.8 0.8 0.8])
             hold on
             line(discreteData.level_timing',(ones(2,1)*discreteData.level_medians'),'Color','k','LineWidth',1)
@@ -160,7 +259,7 @@ classdef util
             name = [pv.data.filename(65:68) '\_' pv.data.filename(70:71) '\_' pv.data.filename(73:74) '\_' pv.data.filename(76:end-4)];
             assignin('base','name',name);
             assignin('base','tr',tr);
-            figure(2)
+            figure(4)
             h = get(gca,'Title');
             title = get(h,'String');
             plot_squiggles(discreteData, name, tr, title); % plot the level information
