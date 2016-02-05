@@ -98,7 +98,7 @@ channels='a';
 % 5-30 min
 chunk=0.05;
 machineF='ieee-le';
-verbose=1;
+verbose=0;
 % if first and only optional input argument is string 'info' the user's
 % request is to obtain information on the file (header parameters), so set
 % flag accordingly
@@ -395,8 +395,8 @@ if eflag
 end
 % display available channels if in info mode
 if ~doLoadData
- disp('**** available channels:');
- disp(h.recChNames);
+%  disp('**** available channels:');
+%  disp(h.recChNames);
 end  
 
 % gain of telegraphed instruments, if any

@@ -624,7 +624,7 @@ classdef SignalData < handle
                     tmp = load(redfile,'red');
                     obj.datared = tmp.red;
                     obj.nred = size(obj.datared,1);
-                    fprintf('\nLoaded reduced data from %s_red.mat.\n',obj.filename);
+%                     fprintf('\nLoaded reduced data from %s_red.mat.\n',obj.filename);
                 end
             end
             
