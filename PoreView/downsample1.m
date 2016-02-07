@@ -1,4 +1,4 @@
-function [filtered, unfiltered] = downsample(sigdata,channel,trange,filter,frequency)
+function [filtered, unfiltered] = downsample1(sigdata,channel,trange,filter,frequency)
 %DOWNSAMPLE does a median downsampling to 'frequency' Hertz, after low-pass
 %   filtering at 'filter' Hertz.
 

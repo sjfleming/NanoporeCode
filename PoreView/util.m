@@ -113,6 +113,8 @@ classdef util
                     events{i}.end_time = blockEndInd*dt;
                     events{i}.ended_manually = endedManually;
                     events{i}.continues_past_end_of_file = goesBeyondFile;
+                    events{i}.open_pore_current = mean_open;
+                    events{i}.voltage = V;
                     i = i + 1;
                     display('real molecule found.');
                 end
@@ -145,9 +147,9 @@ classdef util
             end
         end
         
-        function doFindEventEdges(sigdata,tr)
+        function doFindEventEdges(pv,tr)
             
-            sigdata = sigdata.data;
+            sigdata = pv.data;
             raw1 = abs(sigdata.getViewData([max(0,tr(1)-500),tr(1)]));
             raw2 = abs(sigdata.getViewData([tr(2),min(sigdata.tend,tr(2)+500)]));
             threshold = 0.4;
@@ -166,7 +168,7 @@ classdef util
             else
                 trange(2) = sigdata.findNext(@(x) abs(x(:,2))>threshold, (raw2(rawInd2,1)-0.05)/sigdata.si) * sigdata.si;
             end
-            sigdata.setCursors(trange);
+            pv.setCursors(trange);
             display(['Time = ' num2str(trange(2)-trange(1),5)])
             
         end
@@ -230,10 +232,10 @@ classdef util
             
         end
         
-        function doLevelAnalysis(sigdata,tr,finalFrequency,sigdataalue)
+        function doLevelAnalysis(sigdata,tr,finalFrequency,pvalue)
             
             display('Finding discrete levels:')
-            discreteData = find_discrete_levels(sigdata, 2, tr, finalFrequency, sigdataalue);
+            discreteData = find_discrete_levels(sigdata, 2, tr, finalFrequency, pvalue);
 
             h = figure(4);
             clf
@@ -296,14 +298,14 @@ classdef util
             
         end
         
-        function d = downsample(sigdata, channel, trange, pts)
-            %DOWNSAMPLE does a median downsampling, returning ABOUT 'pts' points
+        function d = downsample_median(sigdata, channel, trange, pts)
+            %DOWNSAMPLE_MEDIAN does a median downsampling, returning ABOUT 'pts' points
             start = ceil(trange(1)/sigdata.si); % original index
             ending = floor(trange(2)/sigdata.si); % original index
             % downsample data in chunks of 500000
             d = [];
             numpts = 500000;
-            rep = round((start-ending) / pts); % number of original points per downsampled point
+            rep = max(1, round((ending-start) / pts)); % number of original points per downsampled point
             if (rep < 2)
                 d = sigdata.get(start:ending,channel);
                 return;
@@ -320,6 +322,74 @@ classdef util
                 fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
                 d = [d, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@median)'];
             end
+        end
+        
+        function d = downsample_pointwise(sigdata, channel, trange, pts)
+            %DOWNSAMPLE_POINTWISE does a pointwise downsampling, returning ABOUT 'pts' points
+            start = ceil(trange(1)/sigdata.si); % original index
+            ending = floor(trange(2)/sigdata.si); % original index
+            % downsample data in chunks of 500000
+            d = [];
+            numpts = 500000;
+            rep = max(1, round((ending-start) / pts)); % number of original points per downsampled point
+            if (rep < 2)
+                d = sigdata.get(start:ending,channel);
+                return;
+            end
+            chunks = floor(pts/numpts); % number of full chunks
+            if chunks ~= 0
+                for i = 1:chunks % do chunks of numpts points
+                    fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
+                    d = [d, downsample(fulldata',rep)];
+                    clear fulldata
+                end
+            end
+            if mod(pts,numpts)~=0
+                fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
+                d = [d, downsample(fulldata',rep)];
+            end
+        end
+        
+        function d = downsample_minmax(sigdata, channel, trange, pts)
+            %DOWNSAMPLE_MINMAX does a min/max downsampling, returning ABOUT 'pts' points
+            start = ceil(trange(1)/sigdata.si); % original index
+            ending = floor(trange(2)/sigdata.si); % original index
+            % downsample data in chunks of 500000
+            d1 = [];
+            d2 = [];
+            numpts = 500000;
+            rep = max(1, 2*round((ending-start) / pts)); % number of original points per downsampled point
+            if (rep < 2)
+                d = sigdata.get(start:ending,channel);
+                return;
+            end
+            chunks = floor(pts/numpts); % number of full chunks
+            % max
+            if chunks ~= 0
+                for i = 1:chunks % do chunks of numpts points
+                    fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
+                    d1 = [d1, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@max)'];
+                    clear fulldata
+                end
+            end
+            if mod(pts,numpts)~=0
+                fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
+                d1 = [d1, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@max)'];
+            end
+            % min
+            if chunks ~= 0
+                for i = 1:chunks % do chunks of numpts points
+                    fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
+                    d2 = [d2, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@min)'];
+                    clear fulldata
+                end
+            end
+            if mod(pts,numpts)~=0
+                fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
+                d2 = [d2, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@min)'];
+            end
+            % put them together
+            d = reshape([d1; d2],[1, numel(d1)+numel(d2)]);
         end
         
     end
