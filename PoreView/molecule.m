@@ -17,7 +17,7 @@ classdef molecule < handle & matlab.mixin.SetGet
         level_stds = nan;
         level_timing = nan;
         level_finding_params = struct();
-        level_assignments = nan;
+        level_alignment = struct();
         pulses = nan;
         voltage = nan;
         temp = nan;
@@ -84,8 +84,8 @@ classdef molecule < handle & matlab.mixin.SetGet
             if isfield(event,'level_finding_params')
                 obj.level_finding_params = event.level_finding_params;
             end
-            if isfield(event,'level_assignments')
-                obj.level_assignments = event.level_assignments;
+            if isfield(event,'level_alignment')
+                obj.level_alignment = event.level_alignment;
             end
             if isfield(event,'pulses')
                 obj.pulses = event.pulses;
@@ -139,7 +139,8 @@ classdef molecule < handle & matlab.mixin.SetGet
         
         % plot functions
         function f = plot_current(obj, varargin)
-            % plot_current()
+            % plot_current(filter, trange, sampling_frequency) optional inputs
+            n = 10000; % max number of points to plot per signal
             if numel(varargin) == 0
                 filter_freq = 1000;
                 trange = [obj.start_time, obj.end_time];
@@ -153,9 +154,17 @@ classdef molecule < handle & matlab.mixin.SetGet
                     display('Requested time range is outside the range of the molecule.');
                     return;
                 end
+            elseif numel(varargin) == 3
+                filter_freq = varargin{1};
+                trange = varargin{2};
+                if ~(trange(1) >= obj.start_time && trange(2) <= obj.end_time) && ~strcmp(obj.start_file, obj.end_file)
+                    display('Requested time range is outside the range of the molecule.');
+                    return;
+                end
+                n = diff(trange) * varargin{3};
             end
             cmap = get(groot,'defaultAxesColorOrder');
-            n = 10000; % max number of points to plot per signal
+            
             f = figure();
             sigdata = SignalData(obj.start_file);
             filtname = sprintf('4-pole Low-pass Bessel (%d Hz)', filter_freq);
@@ -182,7 +191,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             % plot
             plot(time,current_raw(1:numel(time)),'Color',0.8*ones(1,3)) % concatenates if off by a few points in length
             hold on
-            plot(time,current,'Color',cmap(1,:))
+            plot(time,current,'Color','k')
             xlim(trange);
             buff = 100;
             ylimits = [max(0,min(current_raw(buff:end-buff))-20), max(current_raw(buff:end-buff))+20];
@@ -201,7 +210,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             title(['Full molecule sliding, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C : ' obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4)],'FontSize',24)
             xlabel('Time (s)')
             ylabel('Current (pA)')
-            annotation('textbox', [0.85 0.87 0 0], 'String', [num2str(filter_freq) 'Hz'], 'FontSize', 20, 'Color', cmap(1,:));
+            annotation('textbox', [0.8 0.87 0 0], 'String', [num2str(filter_freq) 'Hz'], 'FontSize', 20, 'Color', 'k');
             set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
             set(gca,'OuterPosition',[0.01 0.01 0.98 0.98]) % fit everything in there
             set(gcf,'Position',[-1048, 803, 1000, 400]) % size the figure
@@ -228,9 +237,79 @@ classdef molecule < handle & matlab.mixin.SetGet
             set(gca,'FontSize',24)
         end
         
-        function f = plot_alignment_matrix(obj)
+        function f = plot_levels(obj,varargin)
+            % plot_levels(trange) optional input.  if trange is specified,
+            % this will use the actual sampling for the plot.
+            if (numel(varargin)==1)
+                f = obj.plot_current(obj.level_finding_params.filter,varargin{1},obj.level_finding_params.sampling);
+            else
+                f = obj.plot_current(obj.level_finding_params.filter);
+            end
+            hold on
+            line(obj.level_timing',(obj.level_means*[1,1])','LineWidth',3);
+            title(['Found levels, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
+            xlabel('Time (s)')
+            ylabel('Current (pA)')
+            annotation('textbox', [0.8 0.82 0 0], 'String', ...
+                [obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4) ' p=' ...
+                num2str(obj.level_finding_params.p) ' s=' num2str(obj.level_finding_params.sampling) ...
+                'Hz'], 'FontSize', 20);
+            set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
+            set(gca,'OuterPosition',[0.01 0.01 0.98 0.98]) % fit everything in there
+            set(gcf,'Position',[-1048, 803, 1000, 400]) % size the figure
+            set(gcf,'Color',[1 1 1])
+            set(gca,'FontSize',24)
+        end
+        
+        function f = plot_alignment(obj)
+            % plot the alignment information
+            % if alignment hasn't been done, do it
+            if ~isfield(obj.level_alignment,'model_level_assignment')
+                obj.do_level_alignment;
+            end
             f = figure();
             
+            mod_inds = obj.level_alignment.model_level_assignment;
+            mod_type = obj.level_alignment.level_type; % 1 is normal, 2 is noise, 3 is deep block
+            lvl_accum = obj.level_alignment.model_levels_measured_mean_currents; % mean of level currents for each level assigned to a given model level
+            lvls = obj.level_means;
+            
+            subplot(3,1,1);
+            plot(obj.predicted_levels,'o-','LineWidth',2)
+            hold on
+            plot(lvl_accum,'o-','LineWidth',2);
+            legend('Model','Data')
+            ylabel('Current (pA)')
+            xlabel('Model level')
+            xlim([0 find(~isnan(lvl_accum),1,'last')+1])
+            set(gca,'FontSize',20)
+            title('Best fit of data to model')
+            
+            subplot(3,1,2);
+            plot(lvls)
+            for i=1:numel(lvls)
+                text(i,lvls(i),num2str(mod_inds(i)),'FontSize',14);
+            end
+            hold on
+            xx = 1:numel(obj.level_means);
+            plot(xx(mod_type==2),obj.level_means(mod_type==2),'rx','MarkerSize',10)
+            plot(xx(mod_type==3),obj.level_means(mod_type==3),'go','MarkerSize',10)
+            ylabel('Current (pA)')
+            xlabel('Measured level')
+            xlim([0 numel(lvls)+1])
+            set(gca,'FontSize',20)
+            title('Matching each measured level to a model state')
+            
+            subplot(3,1,3);
+            imagesc(1.03.^(obj.level_alignment.P/2)) % scales so image shows up well
+            hold on
+            plot(1:numel(lvls),obj.level_alignment.ks,'r','LineWidth',3);
+            title('Probability Matrix')
+            ylabel('State')
+            xlabel('Level Number')
+            set(gca,'FontSize',20)
+            
+            set(f,'position',[-1049, -382, 1050, 1585]);
         end
         
         function levels = do_level_analysis(obj, filter, downsample_frequency, p)
@@ -258,7 +337,8 @@ classdef molecule < handle & matlab.mixin.SetGet
                 time = [time, linspace(trange(1), trange(2), numel(current))];
             end
             % use Laszlo's level-finding algorithm to find levels
-            levels = laszlo_levels([time', current'],p);
+            pad = 10;
+            levels = laszlo_levels([time(pad:end-pad)', current(pad:end-pad)'],p);
             % package the data
             obj.level_means = cellfun(@(x) x.current_mean, levels);
             obj.level_medians = cellfun(@(x) x.current_median, levels);
@@ -267,6 +347,26 @@ classdef molecule < handle & matlab.mixin.SetGet
             obj.level_finding_params.p = p;
             obj.level_finding_params.filter = filter;
             obj.level_finding_params.sampling = downsample_frequency;
+        end
+        
+        function do_level_alignment(obj)
+            % align the levels to the predicted model levels
+            % error if we are missing something
+            if isnan(obj.level_means)
+                display('Error: could not align levels.  No levels extracted from the data!');
+                return;
+            end
+            if isnan(obj.predicted_levels)
+                display('Error: could not align levels.  No predicted sequence levels!');
+                return;
+            end
+            obj.level_alignment = struct(); % clear any previous alignment
+            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(obj.predicted_levels, obj.level_means, diff(obj.level_timing,1,2), 0.18*obj.open_pore_current);
+            obj.level_alignment.model_level_assignment = mod_inds;
+            obj.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
+            obj.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
+            obj.level_alignment.P = P; % probabilities in the alignment matrix
+            obj.level_alignment.ks = ks; % state index in the alignment matrix
         end
         
     end

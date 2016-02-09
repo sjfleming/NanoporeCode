@@ -1,20 +1,22 @@
-function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts, probs)
+function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, lvls, dts, dboff, probs)
 
-    dboff = 80;
-    
     if nargin < 4
+        dboff = 80;
+    end
+    
+    if nargin < 5
         % so first we need observation (emission) probabilities
         % assuming constant stddev for each level
-        obsstd = 2.0; % pA
-        stayprob = 0.2;
+        obsstd = 2.5; % pA
+        stayprob = 0.01;
         fwdprob = 1;
-        backprob = 0.05;
-        skipprob = 0.1;
+        backprob = 0.0001;
+        skipprob = 0.001;
 
         % other transition probs
-        noiseprob = 0.1;
-        deepprob = 0;
-        deepdeep = 0;
+        noiseprob = 0.00001;
+        deepprob = 0.000001;
+        deepdeep = 0.05;
     else
         obsstd = probs(1);
         stayprob = probs(2);
@@ -42,9 +44,9 @@ function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts,
     
     E_model = normpdf(Mmat,Nmat,obsstd);
     % use exponential constant for prob of being random noise
-    E_noise = exppdf(repmat(dts',[M,1]),0.001);%1+0*E_model;
-    % and add 50 pA for deep blockages
-    E_deep = normpdf(Mmat,Nmat+50,obsstd);
+    E_noise = exppdf(repmat(dts',[M,1]),0.005);%1+0*E_model;
+    % and add dboff pA for deep blockages
+    E_deep = normpdf(Mmat,Nmat+dboff,obsstd);
     
     % put them all into one emission matrix
     E = [E_model;E_noise;E_deep];
@@ -70,7 +72,7 @@ function [mod_inds, mod_type, lvl_accum] = align_fb(model_prediction, lvls, dts,
     %   D->0,      D->N,   D->D]
     
     T = [       T0,         noiseprob*TI,           deepprob*TI;
-                T0,                 0*TI,           deepprob*T0;
+                T0,       noiseprob^2*T0,           deepprob*T0;
                 T0,         noiseprob*TI,           deepdeep*T0];
     
     % normalize each row to sum to 1
