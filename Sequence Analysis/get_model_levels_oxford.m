@@ -1,4 +1,4 @@
-function pA = get_model_levels_oxford(seq, measured_levels, open_pore)
+function pA = get_model_levels_oxford(seq, measured_levels, open_pore, voltage)
 % get_model_levels_oxford(seq, measured_levels) returns current levels for
 % sequence 'seq' that are predicted by Oxford Nanopore Technologies, Inc.
 % and scaled to mesh with the empirical CDF of the levels passed in,
@@ -59,13 +59,18 @@ function pA = get_model_levels_oxford(seq, measured_levels, open_pore)
     %pA(imag(states)~=0) = imag(states(imag(states)~=0))*(max(levs)-min(levs))/2 + min(levs);
     
     % scale the current levels to match the scaling of the measured levels
-    sorted_levels = sort(measured_levels,'descend');
-    top = mean(measured_levels(measured_levels>open_pore*0.5));
+    top = mean(measured_levels(measured_levels>open_pore*(0.44+(voltage-120)/1000)));
     if isnan(top)
-        top = sorted_levels(1);
+        top = max(measured_levels);
+        display('Trouble doing level scaling!!!!! (top level)')
     end
-    m = mode(round(sorted_levels(end-10:end)));
-    bottom = mean(measured_levels(measured_levels<m+1));
+    polyT = open_pore * ((voltage-120)/1000*[1,1] + [0.13, 0.16]); % corrects for nonlinear IV in a heuristic way...
+    m = mode(round(measured_levels(measured_levels>polyT(1) & measured_levels<polyT(2)))); % trying to find poly T level
+    bottom = mean(measured_levels(measured_levels<m+2 & measured_levels>m-2));
+    if isnan(bottom)
+        bottom = open_pore*0.19;
+        display('Trouble doing level scaling!!!!! (bottom level)')
+    end
     %display(['[' num2str(bottom) ', ' num2str(top) ']'])
     pA = (pA-min(pA))*(top-bottom)/(range(pA)) + bottom;
 

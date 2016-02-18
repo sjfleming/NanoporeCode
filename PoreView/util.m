@@ -22,12 +22,22 @@ classdef util
             tr = [sigdata.tstart, sigdata.tend];
             del = 0.1; % in pA
             raw = sigdata.getViewData(tr);
-            current = raw(:,2)*1000;
-            voltage = raw(:,3);
+            voltage = medfilt1(raw(:,3),10); % get rid of weird spikes (artifact of SignalData min/max downsampling)!!
+            if (sigdata.nsigs > 2) % we have pulses
+                display('downsampling...')
+                % this is much faster than doing real median downsampling
+                current = util.downsample_pointwise(sigdata, 2, tr, numel(voltage))'*1000; % do this to avoid pulsing errors
+                current = medfilt1(current,30);
+            else
+                current = medfilt1(raw(:,2),30)*1000;
+            end
+            % let's just work with positive currents and voltages...
+            current = abs(current);
+            voltage = abs(voltage);
             vx = 0:1:300;
             hvoltage = hist(voltage,vx);
-            v1 = find(hvoltage>500,1,'last');
-            v2 = find(hvoltage(1:v1)<500,1,'last');
+            v1 = find(hvoltage>1e5,1,'last');
+            v2 = find(hvoltage(1:v1)<1e5,1,'last');
             V = sum(hvoltage(v2:v1)*1.*vx(v2:v1))/sum(hvoltage(v2:v1)*1);
             dt = raw(2,1)-raw(1,1);
             clear raw;
@@ -35,22 +45,10 @@ classdef util
             highCurrent = max(current);
             xcurrent = lowCurrent-5:del:highCurrent+5;
             hcurrent = hist(current,xcurrent);
-            i1 = find(hcurrent>50,1,'last');
-            i2 = find(hcurrent(1:i1)<50,1,'last');
-%             g = figure(2);
-%             clf(2)
-%             set(g,'position',[-987         136         908        1067])
-%             subplot(4,1,1)
-%             bar(xcurrent,hcurrent);
-%             hold on
-%             bar(xcurrent(i2:i1),hcurrent(i2:i1),'r','EdgeColor','r')
-%             xlim([-20 xcurrent(i1)+20]);
-%             xlabel('Current (pA)')
-%             ylabel('Data points')
-%             set(gca,'fontsize',16)
+            i1 = find(hcurrent>1e3,1,'last');
+            i2 = find(hcurrent(1:i1)<1e3,1,'last');
             % get mean open pore current
             mean_open = sum(hcurrent(i2:i1)*del.*xcurrent(i2:i1))/sum(hcurrent(i2:i1)*del);
-%             plot(mean_open,3*max(hcurrent(i2:i1)),'r*');
             % find the periods with current blocked between open levels,
             % and voltage high
             blockEndInd = 1;
@@ -70,7 +68,7 @@ classdef util
                 end
                 % check if the voltage goes below 40mV before the end, if so,
                 % reject the event or change the endpoint
-                v_lower_lim = 30; % only this low because of weird filter effect on ViewData...
+                v_lower_lim = 40; % only this low because of weird filter effect on ViewData...
                 if (~isempty(blockEndInd))
                     voltageDropInd = find(voltage(blockStartInd+10:blockEndInd)<v_lower_lim,1,'first')+blockStartInd+10;
                     if (~isempty(voltageDropInd) && voltageDropInd < blockEndInd) % if the voltage does in fact drop before the end
@@ -88,18 +86,27 @@ classdef util
                 end
                 if (~isempty(blockStartInd))
                     % time cutoff
-                    if (isempty(blockEndInd))
-                        duration = dt*(numel(current) - blockStartInd); % go to end if the molecule runs over
-                    else
-                        duration = dt*(blockEndInd - blockStartInd);
+                    if (isempty(blockEndInd) && goesBeyondFile)
+                        blockEndInd = numel(current);
                     end
+                    duration = dt*(blockEndInd - blockStartInd);
                     if (duration > minLength) % less than cutoff time, not real
+                        % check if this could be continuing from previous
+                        % file... could be past abasic
+                        if (blockStartInd < 10)
+                            % if it's from the start, then just look for
+                            % molecule sliding, not abasic
+                            intoMoleculeInd = find(current(blockStartInd:blockEndInd)/mean_open<0.35,1,'first');
+                            if (~isempty(intoMoleculeInd) && intoMoleculeInd < blockEndInd-blockStartInd)
+                                goodEvent = true;
+                            end
+                        end
                         % look for abasic start
                         start_current = mean(current(blockStartInd:round(blockStartInd+0.05/dt)));
                         if (start_current/mean_open > 0.45 && start_current/mean_open < 0.6)
                             % yes, abasic start, but is there more?
-                            intoMoleculeInd = find(current(blockStartInd:blockEndInd)/mean_open<0.35,1,'first');
-                            if (~isempty(intoMoleculeInd) && intoMoleculeInd < blockEndInd-blockStartInd)
+                            intoMoleculeInd = find(current(blockStartInd:blockEndInd)/mean_open<0.35,1,'first')+blockStartInd-1;
+                            if (~isempty(intoMoleculeInd) && (blockEndInd-intoMoleculeInd)*dt > 1) % must have at least a second of good stuff
                                 goodEvent = true;
                             end
                         end
@@ -122,25 +129,70 @@ classdef util
             
             % find the exact starts and ends based on the rough indices
             display('refinement.');
+            if numel(events)==0
+                % if there are no events, ask to find them manually
+                display('Unable to find events.')
+                pv = pv_launch(sigdata.filename);
+                answer = input('Would you like to find events manually? (y/n): ');
+                if ~strcmp(answer,'n')
+                    display('Set the cursors to the edges of the event, then hit any key when ready.')
+                    pause();
+                    trange = pv.getCursors();
+                    events{i}.start_ind = trange(1)/pv.data.si;
+                    events{i}.end_ind = trange(2)/pv.data.si;
+                    events{i}.start_time = trange(1);
+                    events{i}.end_time = trange(2);
+                    % figure out if it goes beyond the end of the file (end near end of file, voltage still on)
+                    goesBeyondFile = false;
+                    if (abs(pv.data.tend - trange(2)) < 0.002 ...
+                        && round(mean(sigdata.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) > 50)
+                        goesBeyondFile = true;
+                    end
+                    events{i}.continues_past_end_of_file = goesBeyondFile;
+                    current_input = input(['Enter the mean open pore current, or just hit enter if it is ' num2str(round(mean_open)) 'pA : ']);
+                    if ~isempty(current_input)
+                        mean_open = current_input;
+                    end
+                    events{i}.open_pore_current = mean_open;
+                    events{i}.voltage = round(mean(sigdata.get([trange(1), trange(1)+0.001]/pv.data.si,3)));
+                    % figure out if it was ended manually
+                    endedManually = false;
+                    if round(mean(sigdata.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) < 50
+                        endedManually = true;
+                    end
+                    events{i}.ended_manually = endedManually;
+                    answer = input('Would you like to locate another event? (y/n): ');
+                end
+                clear pv;
+                if ishandle(1)
+                    close(1)
+                end
+            end
+            
+            % events were located, go through events
             for j = 1:numel(events)
                 % start
-                inds = events{j}.start_ind + [-2, 2];
-                inds = dt*inds / sigdata.si; % conversion from raw indices to data indices
+                inds = events{j}.start_ind + [-5, 5];
+                inds = min(max([0,0], dt*inds / sigdata.si),[sigdata.ndata, sigdata.ndata]); % conversion from raw indices to data indices
                 full_current = sigdata.get(inds,2)*1000; % current in pA, complete data set
-                events{j}.start_ind = find(full_current<0.8*mean_open,1,'first')+inds(1);
+                events{j}.start_ind = find(full_current<0.8*mean_open,1,'first')+inds(1)-1;
                 % end
                 if (~events{j}.ended_manually && ~events{j}.continues_past_end_of_file)
-                    inds = events{j}.end_ind + [-2, 2];
+                    inds = events{j}.end_ind + [-5, 5];
                     inds = dt*inds / sigdata.si; % conversion from raw indices to data indices
                     full_current = sigdata.get(inds,2)*1000; % current in pA, complete data set
-                    events{j}.end_ind = find(full_current>0.9*mean_open,1,'first')+inds(1);
+                    events{j}.end_ind = find(full_current>0.9*mean_open,1,'first')+inds(1)-1;
                 elseif (~events{j}.ended_manually && events{j}.continues_past_end_of_file)
                     events{j}.end_ind = sigdata.ndata;
                 elseif events{j}.ended_manually
-                    inds = events{j}.end_ind + [-2, 2];
+                    inds = events{j}.end_ind + [-5, 5];
                     inds = dt*inds / sigdata.si; % conversion from raw indices to data indices
                     full_voltage = sigdata.get(inds,2)*1000; % current in pA, complete data set
-                    events{j}.end_ind = find(full_voltage<0.9*V,1,'first')+inds(1);
+                    events{j}.end_ind = find(full_voltage<0.9*V,1,'first')+inds(1)-1;
+                end
+                if isempty(events{j}.end_ind)
+                    display('couldn''t find end.  this will cause you problems.')
+                    pause();
                 end
                 events{j}.start_time = events{j}.start_ind * sigdata.si;
                 events{j}.end_time = events{j}.end_ind * sigdata.si;
@@ -223,12 +275,11 @@ classdef util
             display(['Creating histogram from [' num2str(tr) ']'])
             if ~exist('fcurrentSig','var')
                 filter = 10000; % Hz
-                rangeEdited = sigdata.addVirtualSignal(@(d) filt_rmrange(d,ranges),'Range-edited');
-                fcurrentSig = sigdata.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',rangeEdited(1)); % signal 5
-                fcondSig = sigdata.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,rangeEdited(2)]); % signal 6
+                fcurrentSig = sigdata.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',2); % signal 5
+                fcondSig = sigdata.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,2]); % signal 6
             end
             channels = [fcurrentSig,fcondSig];
-            histogram_sigdata(sigdata,tr,filter,channels);
+            histogram_pv(sigdata,tr,filter,channels);
             
         end
         
@@ -300,34 +351,37 @@ classdef util
         
         function d = downsample_median(sigdata, channel, trange, pts)
             %DOWNSAMPLE_MEDIAN does a median downsampling, returning ABOUT 'pts' points
-            start = ceil(trange(1)/sigdata.si); % original index
-            ending = floor(trange(2)/sigdata.si); % original index
-            % downsample data in chunks of 500000
+            start = max(0,ceil(trange(1)/sigdata.si)); % original index
+            ending = min(sigdata.ndata,floor(trange(2)/sigdata.si)); % original index
+            % downsample data in chunks of 2^22 points
             d = [];
-            numpts = 500000;
+            numpts = 2^22; % data points per chunk
             rep = max(1, round((ending-start) / pts)); % number of original points per downsampled point
             if (rep < 2)
                 d = sigdata.get(start:ending,channel);
                 return;
             end
-            chunks = floor(pts/numpts); % number of full chunks
+            chunks = floor((ending-start)/numpts); % number of full chunks
+            fprintf('  0%%\n');
             if chunks ~= 0
                 for i = 1:chunks % do chunks of numpts points
                     fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
                     d = [d, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@median)'];
                     clear fulldata
+                    fprintf('\b\b\b\b%2d%%\n',floor(100*i/chunks));
                 end
             end
             if mod(pts,numpts)~=0
                 fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
                 d = [d, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@median)'];
             end
+            fprintf('\b\b\b\b\b\b');
         end
         
         function d = downsample_pointwise(sigdata, channel, trange, pts)
             %DOWNSAMPLE_POINTWISE does a pointwise downsampling, returning ABOUT 'pts' points
-            start = ceil(trange(1)/sigdata.si); % original index
-            ending = floor(trange(2)/sigdata.si); % original index
+            start = max(0,ceil(trange(1)/sigdata.si)); % original index
+            ending = min(sigdata.ndata,floor(trange(2)/sigdata.si)); % original index
             % downsample data in chunks of 500000
             d = [];
             numpts = 500000;
@@ -336,24 +390,27 @@ classdef util
                 d = sigdata.get(start:ending,channel);
                 return;
             end
-            chunks = floor(pts/numpts); % number of full chunks
+            chunks = floor((ending-start)/numpts); % number of full chunks
+            fprintf('  0%%\n');
             if chunks ~= 0
                 for i = 1:chunks % do chunks of numpts points
                     fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
                     d = [d, downsample(fulldata',rep)];
                     clear fulldata
+                    fprintf('\b\b\b\b%2d%%\n',floor(100*i/chunks));
                 end
             end
             if mod(pts,numpts)~=0
                 fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
                 d = [d, downsample(fulldata',rep)];
             end
+            fprintf('\b\b\b\b\b\b');
         end
         
         function d = downsample_minmax(sigdata, channel, trange, pts)
             %DOWNSAMPLE_MINMAX does a min/max downsampling, returning ABOUT 'pts' points
-            start = ceil(trange(1)/sigdata.si); % original index
-            ending = floor(trange(2)/sigdata.si); % original index
+            start = max(0,ceil(trange(1)/sigdata.si)); % original index
+            ending = min(sigdata.ndata,floor(trange(2)/sigdata.si)); % original index
             % downsample data in chunks of 500000
             d1 = [];
             d2 = [];
@@ -363,7 +420,7 @@ classdef util
                 d = sigdata.get(start:ending,channel);
                 return;
             end
-            chunks = floor(pts/numpts); % number of full chunks
+            chunks = floor((ending-start)/numpts); % number of full chunks
             % max
             if chunks ~= 0
                 for i = 1:chunks % do chunks of numpts points
@@ -377,11 +434,13 @@ classdef util
                 d1 = [d1, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@max)'];
             end
             % min
+            fprintf('  0%%\n');
             if chunks ~= 0
                 for i = 1:chunks % do chunks of numpts points
                     fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
                     d2 = [d2, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@min)'];
                     clear fulldata
+                    fprintf('\b\b\b\b%2d%%\n',floor(100*i/chunks));
                 end
             end
             if mod(pts,numpts)~=0
@@ -390,6 +449,7 @@ classdef util
             end
             % put them together
             d = reshape([d1; d2],[1, numel(d1)+numel(d2)]);
+            fprintf('\b\b\b\b\b\b');
         end
         
     end

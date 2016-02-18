@@ -192,7 +192,7 @@ function pv = pv_launch(s)
             % do a current histogram
             % between cursors
             tr = pv.getCursors();
-            util.doCurrentHistogram(pv,tr);
+            util.doCurrentHistogram(pv.data,tr);
             
         elseif strcmp(e.Character,'q')
             % play audio
