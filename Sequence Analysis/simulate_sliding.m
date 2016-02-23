@@ -40,7 +40,9 @@ function out = simulate_sliding(seq, voltage, temp, varargin)
         % add current state to sequence of states, and advance time
         sequence(end+1) = state;
         t = t+1;
-        fprintf('.')
+        if mod(t,10)==0
+            fprintf('.')
+        end
         
     end
     
@@ -59,15 +61,16 @@ function out = simulate_sliding(seq, voltage, temp, varargin)
         ylim([0, numel(levs)+1])
         set(gca,'fontsize',18)
         ylabel('state')
+        xlabel('time step')
         title(['Voltage = ' num2str(voltage) ' mV, Temp = ' num2str(temp) ' C'])
         
         subplot(2,1,2)
-        line([0:1:t-1;1:1:t],repmat(levs(sequence(1:end-1)),[2,1]),'LineWidth',3)
-        xlim([0, max(t)])
+        line([0:1:t-1;1:1:t]*1e-1,repmat(levs(sequence(1:end-1)),[2,1]),'LineWidth',3)
+        xlim([0, max(t)*1e-1])
         ylim([min(levs)-10, max(levs)+10])
         set(gca,'fontsize',18)
         ylabel('current (pA)')
-        xlabel('time step')
+        xlabel('time (s)')
     end
     
     function bool = try_take_step(temp, seed)
@@ -75,8 +78,9 @@ function out = simulate_sliding(seq, voltage, temp, varargin)
         energy_barrier = 37;
         energy = temp;
         
-        cooperativity = 3;
-        prob = expcdf(energy, energy_barrier) .^ cooperativity;
+        cooperativity = 8;
+        factor = 100; % if timestep is 100ms and we want an attempt every 1ms
+        prob = min(1, factor * (expcdf(energy, energy_barrier) .^ cooperativity));
         
         if seed <= prob
             bool = true;
