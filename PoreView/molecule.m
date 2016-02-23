@@ -415,10 +415,19 @@ classdef molecule < handle & matlab.mixin.SetGet
         end
         
         function levels = do_level_analysis(obj, filter, downsample_frequency, p)
+            
             % access the data and filter and downsample
             sigdata = SignalData(obj.start_file);
             filtname = sprintf('4-pole Low-pass Bessel (%d Hz)', filter);
             fsigs = sigdata.addVirtualSignal(@(d) filt_lpb(d,4,filter),filtname);
+            
+            % if there are pulses, remove a time range around each to eliminate spikes
+            % this is very necessary.  for some reason, spikes thow it off.
+            if sigdata.nsigs>2
+                obj.pulses = obj.getPulseTiming();
+                fsigs = sigdata.addVirtualSignal(@(d) filt_rmrange(d,[obj.pulses'-1e-4, obj.pulses'+1e-3, nan(size(obj.pulses'))]),'spikes removed');
+            end
+            
             % check to see if we are using one or two files
             if strcmp(obj.start_file, obj.end_file)
                 n = (obj.end_ind - obj.start_ind) * downsample_frequency*sigdata.si;
@@ -438,9 +447,11 @@ classdef molecule < handle & matlab.mixin.SetGet
                 time = linspace(obj.start_time, sigdata.tend + obj.end_time, numel(current));
             end
             obj.voltage = round(mean(sigdata.get(obj.start_ind:obj.start_ind+100,3))); % voltage in mV to nearest mV
+            
             % use Laszlo's level-finding algorithm to find levels
             pad = 10;
             levels = laszlo_levels([time(pad:end-pad)', current(pad:end-pad)'],p);
+            
             % package the data
             obj.level_means = cellfun(@(x) x.current_mean, levels);
             obj.level_medians = cellfun(@(x) x.current_median, levels);
@@ -449,6 +460,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             obj.level_finding_params.p = p;
             obj.level_finding_params.filter = filter;
             obj.level_finding_params.sampling = downsample_frequency;
+            
         end
         
         function do_level_alignment(obj)

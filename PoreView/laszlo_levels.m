@@ -38,9 +38,9 @@ function levels = laszlo_levels(data,p)
         
         % with my own tweak to normalize time
         factor = 30/(size(data,1)*(data(2,1)-data(1,1)));
-        probability = (index-i1) * log(std(data(i1:index,2))) + ...
-            (i3-index) * log(std(data(index:i3,2))) - ...
-            (i3-i1) * log(std(data(i1:i3,2)));
+        probability = (index-i1) * log(nanstd(data(i1:index,2))) + ...
+            (i3-index) * log(nanstd(data(index:i3,2))) - ...
+            (i3-i1) * log(nanstd(data(i1:i3,2)));
         probability = probability*factor;
         
     end
@@ -57,9 +57,9 @@ for j = 1:(numel(level_transition_indices)-1)
     levels{j}.start_time = data(level_transition_indices(j),1);
     levels{j}.end_time = data(level_transition_indices(j+1),1);
     levels{j}.duration = data(level_transition_indices(j+1),1)-data(level_transition_indices(j),1);
-    levels{j}.current_mean = mean(data(level_transition_indices(j):level_transition_indices(j+1),2));
-    levels{j}.current_median = median(data(level_transition_indices(j):level_transition_indices(j+1),2));
-    levels{j}.current_std = std(data(level_transition_indices(j):level_transition_indices(j+1),2));
+    levels{j}.current_mean = nanmean(data(level_transition_indices(j):level_transition_indices(j+1),2));
+    levels{j}.current_median = nanmedian(data(level_transition_indices(j):level_transition_indices(j+1),2));
+    levels{j}.current_std = nanstd(data(level_transition_indices(j):level_transition_indices(j+1),2));
 end
 
 fprintf('\n')

@@ -15,7 +15,7 @@ function d = filt_rmrange(d, range)
         % loop through each column, and set all the points to values
         % in the last bits of the range array
         for j=2:size(d,2)
-            d(pts,j) = range(i,j+1);
+            d(pts,j) = range(i,3);
         end
     end
 end
