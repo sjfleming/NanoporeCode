@@ -7,8 +7,8 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, lvl
     if nargin < 5
         % so first we need observation (emission) probabilities
         % assuming constant stddev for each level
-        obsstd = 2.5; % pA
-        stayprob = 0.01;
+        obsstd = 2.0; % pA
+        stayprob = 0.1;
         fwdprob = 1;
         backprob = 0.0001;
         skipprob = 0.001;
@@ -44,7 +44,7 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, lvl
     
     E_model = normpdf(Mmat,Nmat,obsstd);
     % use exponential constant for prob of being random noise
-    E_noise = exppdf(repmat(dts',[M,1]),0.005);%1+0*E_model;
+    E_noise = exppdf(repmat(dts',[M,1]),0.001);%1+0*E_model;
     % and add dboff pA for deep blockages
     E_deep = normpdf(Mmat,Nmat+dboff,obsstd);
     

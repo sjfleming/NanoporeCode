@@ -27,19 +27,37 @@ for k = 1:numel(filenums)
     
     % find the good events
     events_temp = util.doFindEvents(sigdata,1);
+    goodEvent = false(1,numel(events_temp));
     for j = 1:numel(events_temp)
         events_temp{j}.start_file = [folder files{k}];
         events_temp{j}.end_file = [folder files{k}];
         events_temp{j}.temp = temp;
         events_temp{j}.ADPNP_molarity = ADPNP_molarity;
         events_temp{j}.KCl_molarity = KCl_molarity;
-        %pv.setCursors([events_temp{j}.start_time, events_temp{j}.end_time]);
-        %pause();
+        
+        % allow me to manually add and reject events
+        pv.setCursors([events_temp{j}.start_time, events_temp{j}.end_time]);
+        pause();
+        tr = pv.getCursors();
+        if ~(tr(1)==events_temp{j}.start_time && tr(2)==events_temp{j}.end_time)
+            if strcmp(input('Good event? (y/n): ','s'),'y')
+                events_temp{j}.start_time = tr(1);
+                events_temp{j}.end_time = tr(2);
+                events_temp{j}.start_ind = tr(1)/pv.data.si;
+                events_temp{j}.end_ind = tr(2)/pv.data.si;
+                events_temp{j}.ended_manually = strcmp(input('Is this event ended manually? (y/n): ','s'),'y');
+                events_temp{j}.continues_past_end_of_file = strcmp(input('Does this event continue past the end of the file? (y/n): ','s'),'y');
+                goodEvent(j) = true;
+            else
+                goodEvent(j) = false;
+            end
+        else
+            goodEvent(j) = true;
+        end
     end
-    events = [events, events_temp];
-    clear events_temp sigdata j pv;
     
-    % allow me to manually add and reject events
+    events = [events, events_temp(goodEvent)];
+    clear events_temp sigdata j pv;
     
 end
 
@@ -80,16 +98,17 @@ end
 
 % adapterSF with the hairpin
 % 'R' = abasic
-seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCTGTGAAGCTGCCGAGGTTTGACGCGARRRACATGACGGGATGCGGAATCTTTTGATTCCGCATCCCGTCATGTTGCTCGCGTCAAACCTCGGCAGCTTCACAGGAAATTCCTTGTAAAGTTCCAGTGATCGAAAATTTCCCAAAAATTTCCCTTTGAGGCGAGCGGTCAA';
+%seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCTGTGAAGCTGCCGAGGTTTGACGCGARRRACATGACGGGATGCGGAATCTTTTGATTCCGCATCCCGTCATGTTGCTCGCGTCAAACCTCGGCAGCTTCACAGGAAATTCCTTGTAAAGTTCCAGTGATCGAAAATTTCCCAAAAATTTCCCTTTGAGGCGAGCGGTCAA';
+seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCT';
 
 for i = 1:numel(mol)
     display(['Molecule ' num2str(i) ' level alignment']);
     
     % get the predicted levels from oxford
-    levs = mol{i}.level_means;
-    hicut = 0.55 * mol{i}.open_pore_current;
-    lowcut = 0.1 * mol{i}.open_pore_current;
-    model_levels = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), mol{i}.open_pore_current, mol{i}.voltage);
+    levs = abs(mol{i}.level_means);
+    hicut = 0.6 * abs(mol{i}.open_pore_current);
+    lowcut = 0.1 * abs(mol{i}.open_pore_current);
+    model_levels = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), abs(mol{i}.open_pore_current), abs(mol{i}.voltage), mol{i}.temp);
     mol{i}.predicted_levels = model_levels';
     mol{i}.sequence = seq;
     

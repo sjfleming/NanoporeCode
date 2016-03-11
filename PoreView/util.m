@@ -154,7 +154,7 @@ classdef util
                         mean_open = current_input;
                     end
                     events{i}.open_pore_current = mean_open;
-                    events{i}.voltage = round(mean(sigdata.get([trange(1), trange(1)+0.001]/pv.data.si,3)));
+                    events{i}.voltage = abs(round(mean(sigdata.get([trange(1), trange(1)+0.001]/pv.data.si,3))));
                     % figure out if it was ended manually
                     endedManually = false;
                     if round(mean(sigdata.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) < 50
@@ -174,20 +174,20 @@ classdef util
                 % start
                 inds = events{j}.start_ind + [-5, 5];
                 inds = min(max([0,0], dt*inds / sigdata.si),[sigdata.ndata, sigdata.ndata]); % conversion from raw indices to data indices
-                full_current = sigdata.get(inds,2)*1000; % current in pA, complete data set
+                full_current = abs(sigdata.get(inds,2)*1000); % current in pA, complete data set
                 events{j}.start_ind = find(full_current<0.8*mean_open,1,'first')+inds(1)-1;
                 % end
                 if (~events{j}.ended_manually && ~events{j}.continues_past_end_of_file)
                     inds = events{j}.end_ind + [-5, 5];
                     inds = dt*inds / sigdata.si; % conversion from raw indices to data indices
-                    full_current = sigdata.get(inds,2)*1000; % current in pA, complete data set
+                    full_current = abs(sigdata.get(inds,2)*1000); % current in pA, complete data set
                     events{j}.end_ind = find(full_current>0.9*mean_open,1,'first')+inds(1)-1;
                 elseif (~events{j}.ended_manually && events{j}.continues_past_end_of_file)
                     events{j}.end_ind = sigdata.ndata;
                 elseif events{j}.ended_manually
                     inds = events{j}.end_ind + [-5, 5];
                     inds = dt*inds / sigdata.si; % conversion from raw indices to data indices
-                    full_voltage = sigdata.get(inds,2)*1000; % current in pA, complete data set
+                    full_voltage = abs(sigdata.get(inds,2)*1000); % current in pA, complete data set
                     events{j}.end_ind = find(full_voltage<0.9*V,1,'first')+inds(1)-1;
                 end
                 if isempty(events{j}.end_ind)

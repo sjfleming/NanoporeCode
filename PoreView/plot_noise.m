@@ -5,7 +5,7 @@ function plot_noise(sigdata, trange)
 %       algorithm as ClampFit (I think).
 
     % do same thing as ClampFit does - average spectral segs
-    % ClampFit does 2*65536 pts per seg
+    % ClampFit does 2*65536 pts per seg (2^17)
     % get start and end index
     irange = floor(trange/sigdata.si);
     

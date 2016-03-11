@@ -173,10 +173,11 @@ function pv = pv_launch(s)
             % display the mean
             % between cursors
             tr = pv.getCursors();
-            [data,~] = downsample(pv.data,2,tr,1000,10000);
-            V = mean(downsample(pv.data,3,tr,100,1000));
-            m = mean(data,2);
-            s = std(data,1,2);
+            current = util.downsample_pointwise(pv.data,2,tr,1000)*1000;
+            V = mean(util.downsample_pointwise(pv.data,3,tr,1000));
+            m = mean(current);
+            s = std(current);
+            display(' ')
             display(['Mean =  ' num2str(m,5) ' ' char(177) ' ' num2str(s,3) ' pA'])
             display(['Conductance =  ' num2str(m/V,3) ' nS'])
             display(['Voltage =  ' num2str(V,5) ' mV'])

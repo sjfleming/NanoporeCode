@@ -173,20 +173,20 @@ classdef molecule < handle & matlab.mixin.SetGet
             
             % check to see if we are using one or two files
             if (strcmp(obj.start_file, obj.end_file) || trange(2) > trange(1))
-                current = util.downsample_pointwise(sigdata,fsigs(1),trange,n)*1000; % filtered data, in pA
-                current_raw = util.downsample_minmax(sigdata,2,trange,n)*1000; % in pA
+                current = abs(util.downsample_pointwise(sigdata,fsigs(1),trange,n)*1000); % filtered data, in pA
+                current_raw = abs(util.downsample_minmax(sigdata,2,trange,n)*1000); % in pA
                 time = linspace(trange(1), trange(2), numel(current));
             else
                 sigdata2 = SignalData(obj.end_file);
                 n1 = (sigdata.tend - trange(1)) / (trange(2) + sigdata.tend - trange(1)) * n;
                 n2 = (trange(2)) / (trange(2) + sigdata.tend - trange(1)) * n;
                 trange1 = [trange(1), sigdata.tend];
-                current1 = util.downsample_pointwise(sigdata,fsigs(1),trange1,n1)*1000; % filtered data, in pA
-                current_raw1 = util.downsample_minmax(sigdata,2,trange1,n1)*1000; % in pA
+                current1 = abs(util.downsample_pointwise(sigdata,fsigs(1),trange1,n1)*1000); % filtered data, in pA
+                current_raw1 = abs(util.downsample_minmax(sigdata,2,trange1,n1)*1000); % in pA
                 trange2 = [0, trange(2)];
                 fsigs2 = sigdata2.addVirtualSignal(@(d) filt_lpb(d,4,filter_freq),filtname);
-                current2 = util.downsample_pointwise(sigdata2,fsigs2(1),trange2,n2)*1000; % filtered data, in pA
-                current_raw2 = util.downsample_minmax(sigdata2,2,trange2,n2)*1000; % in pA
+                current2 = abs(util.downsample_pointwise(sigdata2,fsigs2(1),trange2,n2)*1000); % filtered data, in pA
+                current_raw2 = abs(util.downsample_minmax(sigdata2,2,trange2,n2)*1000); % in pA
                 current = [current1, current2];
                 current_raw = [current_raw1, current_raw2];
                 time = linspace(trange(1), sigdata.tend + trange(2), numel(current));
@@ -233,7 +233,7 @@ classdef molecule < handle & matlab.mixin.SetGet
         
         function f = plot_squiggle(obj)
             f = figure();
-            plot(1:numel(obj.level_means),obj.level_means,'o-')
+            plot(1:numel(obj.level_means),abs(obj.level_means),'o-')
             title(['Squiggle data, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
             xlabel('Level')
             ylabel('Mean current (pA)')
@@ -259,7 +259,8 @@ classdef molecule < handle & matlab.mixin.SetGet
                 f = obj.plot_current(obj.level_finding_params.filter);
             end
             hold on
-            line(obj.level_timing',(obj.level_means*[1,1])','LineWidth',3);
+            line(obj.level_timing',(abs(obj.level_means)*[1,1])','LineWidth',2);
+            line(obj.level_alignment.level_timing',(abs(obj.level_alignment.level_means)*[1,1])','LineWidth',3,'Color','r');
             title(['Found levels, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
             xlabel('Time (s)')
             ylabel('Current (pA)')
@@ -299,14 +300,14 @@ classdef molecule < handle & matlab.mixin.SetGet
             title('Best fit of data to model')
             
             subplot(3,1,2);
-            plot(lvls)
+            plot(abs(lvls))
             for i=1:numel(lvls)
-                text(i,lvls(i),num2str(mod_inds(i)),'FontSize',14);
+                text(i,abs(lvls(i)),num2str(mod_inds(i)),'FontSize',14);
             end
             hold on
             xx = 1:numel(obj.level_means);
-            plot(xx(mod_type==2),obj.level_means(mod_type==2),'rx','MarkerSize',10)
-            plot(xx(mod_type==3),obj.level_means(mod_type==3),'go','MarkerSize',10)
+            plot(xx(mod_type==2),abs(obj.level_means(mod_type==2)),'rx','MarkerSize',10)
+            plot(xx(mod_type==3),abs(obj.level_means(mod_type==3)),'go','MarkerSize',10)
             ylabel('Current (pA)')
             xlabel('Measured level')
             xlim([0 numel(lvls)+1])
@@ -382,7 +383,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             
             filter = 10000;
             if numel(varargin)==0
-                num = input('Input pulse number');
+                num = input('Input pulse number: ');
             else
                 num = varargin{1};
             end
@@ -425,7 +426,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             % this is very necessary.  for some reason, spikes thow it off.
             if sigdata.nsigs>2
                 obj.pulses = obj.getPulseTiming();
-                fsigs = sigdata.addVirtualSignal(@(d) filt_rmrange(d,[obj.pulses'-1e-4, obj.pulses'+1e-3, nan(size(obj.pulses'))]),'spikes removed');
+                fsigs = sigdata.addVirtualSignal(@(d) filt_rmrange(d,[obj.pulses', obj.pulses'+1.4e-3, nan(size(obj.pulses'))]),'spikes removed');
             end
             
             % check to see if we are using one or two files
@@ -475,13 +476,53 @@ classdef molecule < handle & matlab.mixin.SetGet
                 return;
             end
             obj.level_alignment = struct(); % clear any previous alignment
-            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(obj.predicted_levels, obj.level_means, diff(obj.level_timing,1,2), 0.18*obj.open_pore_current);
+            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(obj.predicted_levels, abs(obj.level_means), diff(obj.level_timing,1,2), 0.18*abs(obj.open_pore_current));
             obj.level_alignment.model_level_assignment = mod_inds;
             obj.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
             obj.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
             obj.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2),diff(obj.level_timing(mod_type~=2,:),1,2),size(obj.predicted_levels),@sum,nan); % total time in each level
             obj.level_alignment.P = P; % probabilities in the alignment matrix
             obj.level_alignment.ks = ks; % state index in the alignment matrix
+            
+            % also store the level means and timing after alignment, by
+            % which i mean: combine adjacent "stay" levels
+            lmean = [];
+            lmed = [];
+            lstd = [];
+            ltime = [];
+            level_means_no_noise = abs(obj.level_means(mod_type==1));
+            level_medians_no_noise = abs(obj.level_medians(mod_type==1));
+            level_stds_no_noise = obj.level_stds(mod_type==1);
+            level_timing_no_noise = obj.level_timing(mod_type==1,:);
+            mod_inds_no_noise = mod_inds(mod_type==1);
+            % go through each level
+            i = 1;
+            while i <= numel(mod_inds_no_noise)
+                % find the region of contiguous stay levels
+                last_contiguous_same_ind = find(mod_inds_no_noise(i+1:end) ~= mod_inds_no_noise(i),1,'first') + i - 1;
+                if isempty(last_contiguous_same_ind)
+                    last_contiguous_same_ind = i;
+                end
+                region = (1:numel(mod_inds_no_noise)) >= i & (1:numel(mod_inds_no_noise)) <= last_contiguous_same_ind;
+                % compute stats
+                durations = diff(level_timing_no_noise(region,:),1,2);
+                lmean(end+1) = sum(durations .* level_means_no_noise(region)) / sum(durations);
+                lmed(end+1) = sum(durations .* level_medians_no_noise(region)) / sum(durations);
+                lstd(end+1) = sum(durations .* level_stds_no_noise(region)) / sum(durations);
+                if size(ltime,1)<2
+                    ltime(end+1,:) = [level_timing_no_noise(i,1), level_timing_no_noise(last_contiguous_same_ind,2)];
+                else
+                    ltime(end+1,:) = [ltime(end,2), level_timing_no_noise(last_contiguous_same_ind,2)];
+                end
+                % update index location
+                i = last_contiguous_same_ind + 1;
+            end
+            % save the values in obj.alignment
+            obj.level_alignment.level_means = lmean';
+            obj.level_alignment.level_medians = lmed';
+            obj.level_alignment.level_stds = lstd';
+            obj.level_alignment.level_timing = ltime;
+            
         end
         
         function update_pulse_timing(obj)
@@ -491,6 +532,67 @@ classdef molecule < handle & matlab.mixin.SetGet
                 p = obj.getPulseTiming();
                 obj.pulses = p;
             end
+        end
+        
+        function levs = get_robust_levels(obj, p_s, p_n)
+            % combines levels it thinks are stays
+            % eliminates levels it thinks are noise
+            % but all without actually aligning to a model set of levels
+            lev = abs(obj.level_means);
+            dur = obj.level_timing(:,2)-obj.level_timing(:,1);
+            tau = 1e-3;
+            levs.level_means(1) = lev(1);
+            levs.level_stds(1) = obj.level_stds(1);
+            levs.level_timing(1,:) = obj.level_timing(1,:);
+            
+            %obj.plot_current;
+            %hold on
+            
+            for i = 2:numel(lev)
+                % probability this is a stay
+                stdev = levs.level_stds(end);
+                p_stay = mean([ normpdf(lev(i),lev(i-1)+0.005,stdev), normpdf(lev(i),lev(i-1)-0.005,stdev) ]) * 0.01;
+                % probability this is noise
+                if i<numel(lev)
+                    p_noise = mean([ exppdf(dur(i)+5e-5,tau), exppdf(dur(i)-5e-5,tau) ]) * 1e-4 ...
+                         * mean([ normpdf(lev(i+1),lev(i-1)+0.05,stdev), normpdf(lev(i+1),lev(i-1)-0.05,stdev) ]) * 0.1;
+                else
+                    p_noise = 0;
+                end
+                % do stuff
+                line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',2,'Color','r');
+                line(obj.level_timing(i,:)',(abs(obj.level_means(i))*[1,1])','LineWidth',2,'Color','c');
+                display(['p_noise = ' num2str(log10(p_noise)) ', p_stay = ' num2str(log10(p_stay))])
+                pause();
+                if log10(p_noise) > p_n
+                    levs.level_timing(end,2) = obj.level_timing(i,2); % update end of level
+                elseif log10(p_stay) > p_s
+                    levs.level_means(end) = ( levs.level_means(end)*diff(levs.level_timing(end,:)) + lev(i)*dur(i) ) ...
+                        / (diff(levs.level_timing(end,:))+dur(i)); % mean over the whole level
+                    levs.level_stds(end) = ( levs.level_stds(end)*diff(levs.level_timing(end,:)) + obj.level_stds(i)*dur(i) ) ...
+                        / (diff(levs.level_timing(end,:))+dur(i)); % std over the whole level
+                    levs.level_timing(end,2) = obj.level_timing(i,2); % update end of level
+                else
+                    levs.level_means(end+1,1) = lev(i);
+                    levs.level_stds(end+1,1) = obj.level_stds(i);
+                    levs.level_timing(end+1,:) = obj.level_timing(i,:);
+                end
+                p1(i) = p_stay;
+                p2(i) = p_noise;
+            end
+            xx = logspace(-500,1,500);
+            figure()
+            hist(p1,xx)
+            set(gca,'xscale','log')
+            title('stay')
+            figure()
+            hist(p2,xx)
+            set(gca,'xscale','log')
+            title('noise')
+            
+            % plot them
+            line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',2);
+            
         end
         
     end
