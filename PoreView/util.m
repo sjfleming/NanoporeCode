@@ -2,11 +2,11 @@ classdef util
     
     methods (Static = true)
         
-        function doPlot(sigdata,tr)
+        function doPlot(pv,tr)
             
             t = inputdlg('Enter title:','Input');
             display(['Plotting time interval [' num2str(tr) ']'])
-            plot_pretty(sigdata,tr,1000,[5,3],t);
+            plot_pretty(pv.data,tr,1000,[5,3],t);
             %plot_pretty(sigdata,tr,'none',[4,3],t);
             %plot_pretty(sigdata,tr,2000,[2,3,6],t);
             
@@ -49,6 +49,9 @@ classdef util
             i2 = find(hcurrent(1:i1)<1e3,1,'last');
             % get mean open pore current
             mean_open = sum(hcurrent(i2:i1)*del.*xcurrent(i2:i1))/sum(hcurrent(i2:i1)*del);
+            if mean_open < 2*V
+                mean_open = 2.5*V;
+            end
             % find the periods with current blocked between open levels,
             % and voltage high
             blockEndInd = 1;
@@ -60,6 +63,10 @@ classdef util
                 endedManually = false;
                 goesBeyondFile = false;
                 voltageHighInd = find(voltage(blockEndInd:end) > 0.9*V, 1, 'first')+blockEndInd;
+                if (isempty(voltageHighInd))
+                    blockEndInd = [];
+                    continue;
+                end
                 blockStartInd = find(current(voltageHighInd:end) < 0.8*mean_open, 1, 'first')+voltageHighInd;
                 if (isempty(blockStartInd))
                     blockEndInd = [];
@@ -129,45 +136,47 @@ classdef util
             
             % find the exact starts and ends based on the rough indices
             display('refinement.');
-            if numel(events)==0
-                % if there are no events, ask to find them manually
-                display('Unable to find events.')
-                pv = pv_launch(sigdata.filename);
-                answer = input('Would you like to find events manually? (y/n): ');
-                if ~strcmp(answer,'n')
-                    display('Set the cursors to the edges of the event, then hit any key when ready.')
-                    pause();
-                    trange = pv.getCursors();
-                    events{i}.start_ind = trange(1)/pv.data.si;
-                    events{i}.end_ind = trange(2)/pv.data.si;
-                    events{i}.start_time = trange(1);
-                    events{i}.end_time = trange(2);
-                    % figure out if it goes beyond the end of the file (end near end of file, voltage still on)
-                    goesBeyondFile = false;
-                    if (abs(pv.data.tend - trange(2)) < 0.002 ...
-                        && round(mean(sigdata.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) > 50)
-                        goesBeyondFile = true;
-                    end
-                    events{i}.continues_past_end_of_file = goesBeyondFile;
-                    current_input = input(['Enter the mean open pore current, or just hit enter if it is ' num2str(round(mean_open)) 'pA : ']);
-                    if ~isempty(current_input)
-                        mean_open = current_input;
-                    end
-                    events{i}.open_pore_current = mean_open;
-                    events{i}.voltage = abs(round(mean(sigdata.get([trange(1), trange(1)+0.001]/pv.data.si,3))));
-                    % figure out if it was ended manually
-                    endedManually = false;
-                    if round(mean(sigdata.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) < 50
-                        endedManually = true;
-                    end
-                    events{i}.ended_manually = endedManually;
-                    answer = input('Would you like to locate another event? (y/n): ');
-                end
-                clear pv;
-                if ishandle(1)
-                    close(1)
-                end
-            end
+            i = 1;
+%             if numel(events)==0
+%                 % if there are no events, ask to find them manually
+%                 display('Unable to find events.')
+%                 answer = input('Would you like to find events manually? (y/n): ','s');
+%                 while ~strcmp(answer,'n')
+%                     display('Set the cursors to the edges of the event, then hit any key when ready.')
+%                     pause();
+%                     trange = pv.getCursors();
+%                     events{i}.start_ind = trange(1)/pv.data.si;
+%                     events{i}.end_ind = trange(2)/pv.data.si;
+%                     events{i}.start_time = trange(1);
+%                     events{i}.end_time = trange(2);
+%                     % figure out if it goes beyond the end of the file (end near end of file, voltage still on)
+%                     goesBeyondFile = false;
+%                     if (abs(pv.data.tend - trange(2)) < 0.002 ...
+%                         && round(mean(pv.data.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) > 50)
+%                         goesBeyondFile = true;
+%                     end
+%                     events{i}.continues_past_end_of_file = goesBeyondFile;
+%                     mean_open = mean(pv.data.get([trange(2)+1e-4, trange(2)+1e-3]/pv.data.si,2))*1000;
+%                     current_input = input(['Enter the mean open pore current, or just hit enter if it is ' num2str(round(mean_open)) 'pA : ']);
+%                     if ~isempty(current_input)
+%                         mean_open = current_input;
+%                     end
+%                     events{i}.open_pore_current = mean_open;
+%                     events{i}.voltage = abs(round(mean(sigdata.get([trange(1), trange(1)+0.001]/pv.data.si,3))));
+%                     % figure out if it was ended manually
+%                     endedManually = false;
+%                     if round(mean(sigdata.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) < 50
+%                         endedManually = true;
+%                     end
+%                     events{i}.ended_manually = endedManually;
+%                     i = i+1;
+%                     answer = input('Would you like to locate another event? (y/n): ','s');
+%                 end
+%                 clear pv;
+%                 if ishandle(1)
+%                     close(1)
+%                 end
+%             end
             
             % events were located, go through events
             for j = 1:numel(events)
@@ -204,7 +213,7 @@ classdef util
             sigdata = pv.data;
             raw1 = abs(sigdata.getViewData([max(0,tr(1)-500),tr(1)]));
             raw2 = abs(sigdata.getViewData([tr(2),min(sigdata.tend,tr(2)+500)]));
-            threshold = 0.4;
+            threshold = 0.33;
             rawInd1 = find(raw1(:,2)>threshold,1,'last');
             if isempty(rawInd1)
                 trange(1) = 0;

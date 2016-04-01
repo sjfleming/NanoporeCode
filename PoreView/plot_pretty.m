@@ -49,7 +49,7 @@ function plot_pretty(sigdata, trange, filter, channels, t)
         display('Finding pulse timings...')
         % find possible pulses quickly using a derivative
         pds = 1000;
-        [pulsedata, ~] = downsample(sigdata,4,trange,pds*10,pds);
+        pulsedata = util.downsample_pointwise(sigdata, 4, trange, 1e5);
         difference = diff(pulsedata);
         [~,candidates] = findpeaks(difference.*(difference>0),'MinPeakHeight',2,'MinPeakDist',50);
         candidates = trange(1) + candidates/pds; % convert from index to time

@@ -1,21 +1,21 @@
-function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, lvls, dts, dboff, probs)
+function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, model_stds, lvls, dts, dboff, probs)
 
-    if nargin < 4
+    if nargin < 5
         dboff = 80;
     end
     
-    if nargin < 5
+    if nargin < 6
         % so first we need observation (emission) probabilities
         % assuming constant stddev for each level
-        obsstd = 2.0; % pA
-        stayprob = 0.1;
+        % obsstd = 2.0; % pA
+        stayprob = 0.001;
         fwdprob = 1;
         backprob = 0.0001;
-        skipprob = 0.001;
+        skipprob = 0.01;
 
         % other transition probs
-        noiseprob = 0.00001;
-        deepprob = 0.000001;
+        noiseprob = 0.1;
+        deepprob = 0.0001;
         deepdeep = 0.05;
     else
         obsstd = probs(1);
@@ -40,13 +40,20 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, lvl
     N = numel(lvls);
     
     [Nmat,Mmat] = meshgrid(lvls,model_prediction);
+    stds = repmat(model_stds',numel(lvls),1)'; % orientation of this matrix has been checked and is correct
     
-    
-    E_model = normpdf(Mmat,Nmat,obsstd);
+    %E_model = normpdf(Mmat,Nmat,obsstd);
+    %E_model = normpdf(Mmat,Nmat,min(2,stds));% + 0.001*lorentzianpdf(Mmat,Nmat,stds/2).^10;
+    E_model = normpdf(Mmat,Nmat,0.5+stds);
+    %E_model = lorentzianpdf(Mmat,Nmat,stds/2).^10;
     % use exponential constant for prob of being random noise
     E_noise = exppdf(repmat(dts',[M,1]),0.001);%1+0*E_model;
+    %E_noise = exppdf(repmat(dts',[M,1]),0.001).*E_model;
+    %E_noise = exppdf(repmat(dts',[M,1]),median(dts)/log(2)/200);
     % and add dboff pA for deep blockages
-    E_deep = normpdf(Mmat,Nmat+dboff,obsstd);
+    %E_deep = normpdf(Mmat,Nmat+dboff,obsstd);
+    E_deep = normpdf(Mmat,Nmat+dboff,min(2,stds));
+    %E_deep = lorentzianpdf(Mmat,Nmat+dboff,stds/2).^10.*E_model;
     
     % put them all into one emission matrix
     E = [E_model;E_noise;E_deep];
@@ -58,6 +65,8 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, lvl
     dn = 5;
     
     dprobs = [backprob*skipprob.^(dn-1:-1:0) stayprob fwdprob*skipprob.^(0:dn-1)];
+    %dprobs = [(backprob*skipprob).^(5*((dn-1):-1:0)) stayprob (fwdprob*skipprob).^(5*(0:dn-1))];
+    %dprobs = [backprob*backprob.^(10*(dn-1):-10:0) stayprob fwdprob*skipprob.^(0:10:10*(dn-1))];
     T0 = zeros(M);
     for i=1:numel(dprobs)
         di = i-dn-1;
@@ -71,8 +80,8 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, lvl
     %   N->0,      N->N,   N->D;
     %   D->0,      D->N,   D->D]
     
-    T = [       T0,         noiseprob*TI,           deepprob*TI;
-                T0,       noiseprob^2*T0,           deepprob*T0;
+    T = [       T0,         noiseprob*TI,           deepprob*T0;
+                T0,       noiseprob^2*TI,           deepprob*T0;
                 T0,         noiseprob*TI,           deepdeep*T0];
     
     % normalize each row to sum to 1

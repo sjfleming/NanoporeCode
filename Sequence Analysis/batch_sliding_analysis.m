@@ -13,41 +13,50 @@ folder = '/Users/Stephen/Documents/Stephen/Research/Data/Biopore/';
 % date = '20160121';
 % filenums = 7:12;
 
-events = cell(0);
 files = cell(0);
+mol = cell(0);
+unfinished_event_in_last_file = false;
 
 for k = 1:numel(filenums)
+    open_pore = nan;
     files{k} = [date '/' date(1:4) '_' date(5:6) '_' date(7:8) '_' sprintf('%04d',filenums(k)) '.abf'];
     if (ishandle(1))
         close(1)
     end
-    pv = PoreView([folder files{k}]);
+    pv = pv_launch([folder files{k}]);
     sigdata = pv.data;
+    %sigdata = SignalData([folder files{k}]);
     display([files{k} ' : '])
     
     % find the good events
-    events_temp = util.doFindEvents(sigdata,1);
-    goodEvent = false(1,numel(events_temp));
-    for j = 1:numel(events_temp)
-        events_temp{j}.start_file = [folder files{k}];
-        events_temp{j}.end_file = [folder files{k}];
-        events_temp{j}.temp = temp;
-        events_temp{j}.ADPNP_molarity = ADPNP_molarity;
-        events_temp{j}.KCl_molarity = KCl_molarity;
+    events = util.doFindEvents(sigdata,1);
+    goodEvent = false(1,numel(events));
+    for j = 1:numel(events)
+        events{j}.start_file = [folder files{k}];
+        events{j}.end_file = [folder files{k}];
+        events{j}.temp = temp;
+        events{j}.ADPNP_molarity = ADPNP_molarity;
+        events{j}.KCl_molarity = KCl_molarity;
         
         % allow me to manually add and reject events
-        pv.setCursors([events_temp{j}.start_time, events_temp{j}.end_time]);
+        pv.setCursors([events{j}.start_time, events{j}.end_time]);
         pause();
         tr = pv.getCursors();
-        if ~(tr(1)==events_temp{j}.start_time && tr(2)==events_temp{j}.end_time)
+        if ~(tr(1)==events{j}.start_time && tr(2)==events{j}.end_time)
             if strcmp(input('Good event? (y/n): ','s'),'y')
-                events_temp{j}.start_time = tr(1);
-                events_temp{j}.end_time = tr(2);
-                events_temp{j}.start_ind = tr(1)/pv.data.si;
-                events_temp{j}.end_ind = tr(2)/pv.data.si;
-                events_temp{j}.ended_manually = strcmp(input('Is this event ended manually? (y/n): ','s'),'y');
-                events_temp{j}.continues_past_end_of_file = strcmp(input('Does this event continue past the end of the file? (y/n): ','s'),'y');
+                events{j}.start_time = tr(1);
+                events{j}.end_time = tr(2);
+                events{j}.start_ind = tr(1)/pv.data.si;
+                events{j}.end_ind = tr(2)/pv.data.si;
+                events{j}.ended_manually = strcmp(input('Is this event ended manually? (y/n): ','s'),'y');
+                events{j}.continues_past_end_of_file = strcmp(input('Does this event continue past the end of the file? (y/n): ','s'),'y');
                 goodEvent(j) = true;
+                if isnan(open_pore)
+                    display('Set cursors on a segment of open pore current.')
+                    pause();
+                    open_pore = mean(pv.data.get(pv.getCursors()/pv.data.si,2))*1000;
+                end
+                events{j}.open_pore_current = open_pore;
             else
                 goodEvent(j) = false;
             end
@@ -56,7 +65,63 @@ for k = 1:numel(filenums)
         end
     end
     
-    events = [events, events_temp(goodEvent)];
+    % missed any events?
+    display('That was the last auto-found event.')
+    while strcmp(input('Input another event manually? (y/n): ','s'),'y')
+        j = j+1;
+        if isempty(j)
+            j = 1;
+        end
+        display('Set cursors to beginning and end of event, then hit any key.')
+        pause();
+        tr = pv.getCursors();
+        if strcmp(input('Good event? (y/n): ','s'),'y')
+            events{j}.start_time = tr(1);
+            events{j}.end_time = tr(2);
+            events{j}.start_ind = tr(1)/pv.data.si;
+            events{j}.end_ind = tr(2)/pv.data.si;
+            events{j}.ended_manually = strcmp(input('Is this event ended manually? (y/n): ','s'),'y');
+            events{j}.continues_past_end_of_file = strcmp(input('Does this event continue past the end of the file? (y/n): ','s'),'y');
+            events{j}.start_file = [folder files{k}];
+            events{j}.end_file = [folder files{k}];
+            events{j}.temp = temp;
+            events{j}.ADPNP_molarity = ADPNP_molarity;
+            events{j}.KCl_molarity = KCl_molarity;
+            goodEvent(j) = true;
+            if isnan(open_pore)
+                display('Set cursors on a segment of open pore current.')
+                pause();
+                open_pore = mean(pv.data.get(pv.getCursors()/pv.data.si,2))*1000;
+            end
+            events{j}.open_pore_current = open_pore;
+        else
+            goodEvent(j) = false;
+        end
+    end
+    
+    events = events(goodEvent);
+    for i = 1:numel(events)
+        % combine first with last from previous file, if necessary
+        if (numel(mol)>=1 && i == 1 && ...
+                unfinished_event_in_last_file ...
+                && events{i}.start_ind < 100)
+            mol{end}.addData(events{i});
+            display(['Last molecule in ' mol{end}.start_file(end-18:end)])
+            display(['combined with first molecule in ' events{i}.start_file(end-18:end)])
+            mol{end}.save;
+        else
+            mol{end+1} = molecule(events{i});
+            mol{end}.save;
+        end
+    end
+    % check if last molecule is unfinished in this file
+    if ~isempty(i) && events{i}.continues_past_end_of_file;
+        unfinished_event_in_last_file = true;
+    else
+        unfinished_event_in_last_file = false;
+    end
+    %events = [events, events_temp(goodEvent)];
+    %events = [events, events_temp];
     clear events_temp sigdata j pv;
     
 end
@@ -107,9 +172,10 @@ for i = 1:numel(mol)
     % get the predicted levels from oxford
     levs = abs(mol{i}.level_means);
     hicut = 0.6 * abs(mol{i}.open_pore_current);
-    lowcut = 0.1 * abs(mol{i}.open_pore_current);
-    model_levels = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), abs(mol{i}.open_pore_current), abs(mol{i}.voltage), mol{i}.temp);
+    lowcut = 0.15 * abs(mol{i}.open_pore_current);
+    [model_levels, model_levels_std] = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), abs(mol{i}.open_pore_current), abs(mol{i}.voltage), mol{i}.temp);
     mol{i}.predicted_levels = model_levels';
+    mol{i}.predicted_levels_stdev = model_levels_std';
     mol{i}.sequence = seq;
     
     % do the alignment of measured levels to predictions

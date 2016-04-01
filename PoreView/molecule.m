@@ -12,6 +12,7 @@ classdef molecule < handle & matlab.mixin.SetGet
         end_file = [];
         sequence = [];
         predicted_levels = nan;
+        predicted_levels_stdev = nan;
         level_means = nan;
         level_medians = nan;
         level_stds = nan;
@@ -67,6 +68,9 @@ classdef molecule < handle & matlab.mixin.SetGet
                 obj.sequence = event.sequence;
             end
             if isfield(event,'predicted_levels')
+                obj.predicted_levels = event.predicted_levels;
+            end
+            if isfield(event,'predicted_levels_stdev')
                 obj.predicted_levels = event.predicted_levels;
             end
             if isfield(event,'level_means')
@@ -388,12 +392,13 @@ classdef molecule < handle & matlab.mixin.SetGet
                 num = varargin{1};
             end
             
-            f = figure();
+            f = figure(1);
+            clf(1)
             hold on
             set(gca,'fontsize',20)
             ylabel('Current (pA)')
             xlabel('Time (ms)')
-            title([obj.start_file(end-27:end-20) ': pulses ' num2str(num)])
+            title([obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4) ': pulses ' num2str(num)])
             set(f,'Position',[-965, 272, 852, 862])
             
             sigdata = SignalData(obj.start_file);
@@ -403,7 +408,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             twindow = [-0.05, 0.05];
             if numel(num)==1
                 d = sigdata.getByTime(obj.pulses(num)+twindow);
-                plot(d(:,1),d(:,fsigs(1))*1000,'k')
+                plot((d(:,1)-obj.pulses(num))*1000,d(:,fsigs(1))*1000,'k')
                 plot(0,mean(d(1:100,fsigs(1)))*1000+50,'r*')
                 ylim([0, 500])
             else
@@ -476,11 +481,13 @@ classdef molecule < handle & matlab.mixin.SetGet
                 return;
             end
             obj.level_alignment = struct(); % clear any previous alignment
-            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(obj.predicted_levels, abs(obj.level_means), diff(obj.level_timing,1,2), 0.18*abs(obj.open_pore_current));
+            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(obj.predicted_levels, ...
+                obj.predicted_levels_stdev, abs(obj.level_means), diff(obj.level_timing,1,2), 0.18*abs(obj.open_pore_current));
             obj.level_alignment.model_level_assignment = mod_inds;
             obj.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
             obj.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
-            obj.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2),diff(obj.level_timing(mod_type~=2,:),1,2),size(obj.predicted_levels),@sum,nan); % total time in each level
+            obj.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2), ...
+                diff(obj.level_timing(mod_type~=2,:),1,2),size(obj.predicted_levels),@sum,nan); % total time in each level
             obj.level_alignment.P = P; % probabilities in the alignment matrix
             obj.level_alignment.ks = ks; % state index in the alignment matrix
             
@@ -551,19 +558,21 @@ classdef molecule < handle & matlab.mixin.SetGet
             for i = 2:numel(lev)
                 % probability this is a stay
                 stdev = levs.level_stds(end);
-                p_stay = mean([ normpdf(lev(i),lev(i-1)+0.005,stdev), normpdf(lev(i),lev(i-1)-0.005,stdev) ]) * 0.01;
+                div = 0.00005;
+                p_stay = mean([ normpdf(lev(i),lev(i-1)+div,stdev), normpdf(lev(i),lev(i-1)-div,stdev) ]) * 2*div;
                 % probability this is noise
                 if i<numel(lev)
-                    p_noise = mean([ exppdf(dur(i)+5e-5,tau), exppdf(dur(i)-5e-5,tau) ]) * 1e-4 ...
-                         * mean([ normpdf(lev(i+1),lev(i-1)+0.05,stdev), normpdf(lev(i+1),lev(i-1)-0.05,stdev) ]) * 0.1;
+                    p_noise = mean([ exppdf(dur(i)+div,tau), exppdf(dur(i)-div,tau) ]) * 2*div ... % short enough
+                         * (1 - p_stay) ... % it's not the same level
+                         * mean([ normpdf(lev(i+1),lev(i-1)+div,stdev), normpdf(lev(i+1),lev(i-1)-div,stdev) ]) * 2*div; % it goes back to the same level
                 else
                     p_noise = 0;
                 end
                 % do stuff
-                line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',2,'Color','r');
-                line(obj.level_timing(i,:)',(abs(obj.level_means(i))*[1,1])','LineWidth',2,'Color','c');
-                display(['p_noise = ' num2str(log10(p_noise)) ', p_stay = ' num2str(log10(p_stay))])
-                pause();
+                %line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',2,'Color','r');
+                %line(obj.level_timing(i,:)',(abs(obj.level_means(i))*[1,1])','LineWidth',2,'Color','c');
+                %display(['p_noise = ' num2str(log10(p_noise)) ', p_stay = ' num2str(log10(p_stay))])
+                %pause();
                 if log10(p_noise) > p_n
                     levs.level_timing(end,2) = obj.level_timing(i,2); % update end of level
                 elseif log10(p_stay) > p_s
@@ -580,18 +589,30 @@ classdef molecule < handle & matlab.mixin.SetGet
                 p1(i) = p_stay;
                 p2(i) = p_noise;
             end
-            xx = logspace(-500,1,500);
-            figure()
-            hist(p1,xx)
-            set(gca,'xscale','log')
-            title('stay')
-            figure()
-            hist(p2,xx)
-            set(gca,'xscale','log')
-            title('noise')
             
-            % plot them
-            line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',2);
+            if nargout == 0
+                xx = logspace(-100,1,500);
+                figure(5)
+                clf(5)
+                subplot(3,1,1)
+                y1 = hist(p1,xx);
+                bar(xx,y1)
+                ylim([0, max(y1(2:end))])
+                set(gca,'xscale','log')
+                title('stay')
+                subplot(3,1,2)
+                y2 = hist(p2,xx);
+                bar(xx,y2)
+                ylim([0, max(y2(2:end))])
+                set(gca,'xscale','log')
+                title('noise')
+
+                % plot them
+                subplot(3,1,3)
+                line(obj.level_timing',(abs(obj.level_means)*[1,1])','LineWidth',2);
+                hold on
+                line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',3,'Color','k');
+            end
             
         end
         

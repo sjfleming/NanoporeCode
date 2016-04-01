@@ -107,6 +107,9 @@ function [Vs, Is] = plot_iv(filename)
     set(gca,'FontSize',24)
     xlim([-200 200])
     
+    assignin('base',['V_' filename(end-5:end-4)],Vs)
+    assignin('base',['I_' filename(end-5:end-4)],Is)
+    
 %     hfig = figure('Name',sprintf('I-V Plot of %s',filename),'NumberTitle','off');
 %     
 %     % draw the axes
