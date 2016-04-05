@@ -1,6 +1,6 @@
 classdef molecule < handle & matlab.mixin.SetGet
     %MOLECULE object to aid in analysis of nanopore sequencing data
-    %   ...
+    % Stephen Fleming
     
     properties (SetAccess = public, GetAccess = public)
         start_ind = nan;
@@ -614,6 +614,50 @@ classdef molecule < handle & matlab.mixin.SetGet
                 line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',3,'Color','k');
             end
             
+        end
+        
+        function n = get_alignment_stats(obj,last_level_of_interest)
+            % return alignment statistics pertaining to coverage and
+            % forward and backward steps
+            
+            if nargin < 2
+                last_level_of_interest = numel(obj.sequence);
+            end
+            
+            % go through the levels and count
+            assignments = obj.level_alignment.model_level_assignment;
+            real_levels = obj.level_alignment.level_type == 1 & assignments <= last_level_of_interest;
+            ll = assignments(real_levels);
+            
+            n.skips = 0;
+            n.stays = 0;
+            n.forward = 0;
+            n.back = 0;
+            
+            for i = 2:numel(ll)
+                delta = ll(i)-ll(i-1);
+                switch delta
+                    case -1
+                        n.back = n.back + 1;
+                    case 0
+                        n.stays = n.stays + 1;
+                    case 1
+                        n.forward = n.forward + 1;
+                    case 2
+                        n.skips = n.skips + 1;
+                    otherwise
+                        if ll(i)-ll(i-1) < -1
+                            n.back = n.back + abs(ll(i)-ll(i-1));
+                        elseif ll(i)-ll(i-1) > 2
+                            n.skips = n.skips + abs(ll(i)-ll(i-1)) - 1;
+                        end
+                end
+            end
+            
+            n.noise = sum(obj.level_alignment.level_type == 2);
+            n.deepblock = sum(obj.level_alignment.level_type == 3);
+            n.model_levels_covered = sum(~isnan(obj.level_alignment.model_levels_measured_mean_currents));
+            n.model_levels_never_covered = sum(isnan(obj.level_alignment.model_levels_measured_mean_currents(1:find(~isnan(obj.level_alignment.model_levels_measured_mean_currents),1,'last'))));
         end
         
     end
