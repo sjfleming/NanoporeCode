@@ -469,6 +469,48 @@ classdef molecule < handle & matlab.mixin.SetGet
             
         end
         
+        function do_iterative_scaling_alignment(obj)
+            % iterates between model scaling and level alignment until
+            % convergence is reached.  helps improve model scaling.
+            
+            % get the initial predicted levels from oxford
+            levs = abs(obj.level_means);
+            hicut = 0.6 * abs(obj.open_pore_current);
+            lowcut = 0.15 * abs(obj.open_pore_current);
+            [model_levels, model_levels_std] = ...
+                get_model_levels_oxford(obj.sequence, levs(levs>lowcut & levs<hicut), abs(obj.open_pore_current), abs(obj.voltage), obj.temp);
+            
+            % save the initial scaling
+            obj.predicted_levels = model_levels';
+            obj.predicted_levels_stdev = model_levels_std';
+            
+            % iterate alignment and scaling until convergence is achieved
+            stop_criterion = 0.05;
+            lsqdist = [];
+            dfit = 1;
+            while dfit > stop_criterion && numel(lsqdist) < 20
+                % do a level alignment
+                obj.do_level_alignment;
+                % calculate least-squares distance per measured level
+                logic = ~isnan(obj.level_alignment.model_levels_measured_mean_currents); % these levels are not missing
+                lsqdist(end+1) = sum((obj.level_alignment.model_levels_measured_mean_currents(logic) - obj.predicted_levels(logic)).^2) / sum(logic);
+                if numel(lsqdist)>1
+                    dfit = abs(lsqdist(end)-lsqdist(end-1));
+                end
+                % do a least-squares fit
+                f = fit(obj.level_alignment.model_levels_measured_mean_currents(logic),obj.predicted_levels(logic), ...
+                        'poly1','Weights',obj.level_alignment.model_levels_measured_total_duration(logic),'Robust','bisquare');
+                % invert to get the scale and offset corrections and update the
+                % predicted levels
+                obj.predicted_levels = (obj.predicted_levels-f.p2)/f.p1;
+            end
+            
+            if numel(lsqdist)==20
+                display('Iterative scaling alignment warning: convergence not reached in 20 iterations.')
+            end
+            
+        end
+        
         function do_level_alignment(obj)
             % align the levels to the predicted model levels
             % error if we are missing something

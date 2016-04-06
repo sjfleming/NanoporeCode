@@ -1,7 +1,7 @@
 function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, model_stds, lvls, dts, dboff, probs)
 
     if nargin < 5
-        dboff = 80;
+        dboff = 100;
     end
     
     if nargin < 6
@@ -14,9 +14,9 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, mod
         skipprob = 0.01;
 
         % other transition probs
-        noiseprob = 0.1;
-        deepprob = 0.0001;
-        deepdeep = 0.05;
+        noiseprob = 0.001;
+        deepprob = 0.001;
+        deepdeep = 0.01;
     else
         obsstd = probs(1);
         stayprob = probs(2);
@@ -52,11 +52,12 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, mod
     %E_noise = exppdf(repmat(dts',[M,1]),median(dts)/log(2)/200);
     % and add dboff pA for deep blockages
     %E_deep = normpdf(Mmat,Nmat+dboff,obsstd);
-    E_deep = normpdf(Mmat,Nmat+dboff,min(2,stds));
-    %E_deep = lorentzianpdf(Mmat,Nmat+dboff,stds/2).^10.*E_model;
+    %E_deep = ( normpdf(Mmat,Nmat+dboff,min(2,stds))) + 1e-5*exppdf(Nmat,5) )/(1+1e-5);
+    E_deep = lorentzianpdf(Mmat,Nmat+dboff,stds/2).^8;%.*E_model;
     
     % put them all into one emission matrix
     E = [E_model;E_noise;E_deep];
+    E = E ./ repmat(sum(E),[size(E,1) 1]);
     % do log-likelihoods
     E = log(E);
     
@@ -81,8 +82,8 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, mod
     %   D->0,      D->N,   D->D]
     
     T = [       T0,         noiseprob*TI,           deepprob*T0;
-                T0,       noiseprob^2*TI,           deepprob*T0;
-                T0,         noiseprob*TI,           deepdeep*T0];
+                T0,       noiseprob^2*TI,           deepprob*TI;
+                T0,         noiseprob*TI,           deepdeep*TI];
     
     % normalize each row to sum to 1
     Tn = sum(T,2);
@@ -134,10 +135,11 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, mod
     mod_type = 1 + floor((ks-1)/M);
     
     % create adjusted levels for deep blockages
-    lvls_adj = lvls;
-    lvls_adj(mod_type==3) = lvls_adj(mod_type==3)+dboff;
+%     lvls_adj = lvls;
+%     lvls_adj(mod_type==3) = lvls_adj(mod_type==3)+dboff;
 
-    lvl_accum = accumarray(kinds(mod_type~=2),lvls_adj(mod_type~=2),[M 1],@mean,nan);
+%     lvl_accum = accumarray(kinds(mod_type~=2),lvls_adj(mod_type~=2),[M 1],@mean,nan);
+    lvl_accum = accumarray(kinds(mod_type==1),lvls(mod_type==1),[M 1],@mean,nan);
     
     if nargout >= 1
         return
