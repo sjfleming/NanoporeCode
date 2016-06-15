@@ -95,7 +95,7 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, mod
     % how do we set initial probabilities? dunno, exponentially decaying
     % at the start or something
     P = 0*E;
-    P(:,1) = E(:,1) - ((1:3*M)');
+    P(:,1) = E(:,1) - (2*(1:3*M)');
     P(:,1) = P(:,1) - log(sum(exp(P(:,1))));
     Pnorms = zeros(N,1);
     K = 0*E;
@@ -124,6 +124,14 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, mod
         ks(i) = k;
         k = K(k,i);
     end
+    
+%     % run forward trace
+%     ks = zeros(N,1);
+%     [~,k] = max(P(:,1));
+%     for i=1:N
+%         ks(i) = k;
+%         k = K(k,i);
+%     end
     
     % so now ks is the state index of each seen level
     % kinds is the model index (which is state index modulo number of mod
