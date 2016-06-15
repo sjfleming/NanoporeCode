@@ -6,9 +6,9 @@ function seqstates = get_states(seq, k)
 % If there are abasics, the imaginary part is the number of abasics at
 % that kmer location.
 
-    if (nargin < 2)
-        k = 5;
-    end
+%     if (nargin < 2)
+%         k = 5;
+%     end
     
     % edit 2/8/16, SJF
     % if any of the integers in 'seq' are 5, then this stands for an abasic

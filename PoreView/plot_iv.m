@@ -59,11 +59,11 @@ function [Vs, Is] = plot_iv(filename)
         %Vs = linspace(-200,200,sz(3))';
         Vs = (-200:5:200)';
         p1 = 41;
-        p2 = 61;
+        p2 = 51;
     else
         %Vs = linspace(200,-200,sz(3))';
         Vs = (200:-5:-200)';
-        p1 = 21;
+        p1 = 31;
         p2 = 41;
     end
     if isfield(h,'setVoltages')

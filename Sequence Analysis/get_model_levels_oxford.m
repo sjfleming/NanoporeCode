@@ -62,7 +62,9 @@ function [pA, pA_std] = get_model_levels_oxford(seq, measured_levels, open_pore,
                     pA(ind) = 49.6;
                     pA_std(ind) = 1.20;
                 otherwise
-                    display('Unknown abasic k-mer in sequence: cannot predict current level!');
+                    display('Unknown abasic k-mer in sequence: guessing!');
+                    pA(ind) = (sum(kmer=='R')*105 + sum(kmer=='A')*53 + sum(kmer=='C')*52 + sum(kmer=='G')*55 + sum(kmer=='T')*36)/5;
+                    pA_std(ind) = 1.5;
             end
         end
     end

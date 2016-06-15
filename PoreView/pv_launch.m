@@ -185,7 +185,7 @@ function pv = pv_launch(s)
         elseif strcmp(e.Character,'x')
             % display conductance
             display('Showing conductance')
-            fcondSig = pv.data.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[2,3]); % signal 6
+            fcondSig = pv.data.addVirtualSignal(@(d) repmat(abs(d(:,2)*1000./d(:,3)) .* double(abs(d(:,3))>5),[1 2]),'Conductance (nS)',[2,3]); % signal 6
             pv.setSignalPanel(1, fcondSig(2)); % show it
             pv.autoscaleY();
         

@@ -51,12 +51,13 @@ for k = 1:numel(filenums)
                 events{j}.ended_manually = strcmp(input('Is this event ended manually? (y/n): ','s'),'y');
                 events{j}.continues_past_end_of_file = strcmp(input('Does this event continue past the end of the file? (y/n): ','s'),'y');
                 goodEvent(j) = true;
-                if isnan(open_pore)
+                if isnan(open_pore) || isempty(open_pore)
                     display('Set cursors on a segment of open pore current.')
                     pause();
                     open_pore = mean(pv.data.get(pv.getCursors()/pv.data.si,2))*1000;
+                    events{j}.open_pore_current = open_pore;
+                    events{j}.voltage = mean(pv.data.get(pv.getCursors()/pv.data.si,3));
                 end
-                events{j}.open_pore_current = open_pore;
             else
                 goodEvent(j) = false;
             end
@@ -88,12 +89,10 @@ for k = 1:numel(filenums)
             events{j}.ADPNP_molarity = ADPNP_molarity;
             events{j}.KCl_molarity = KCl_molarity;
             goodEvent(j) = true;
-            if isnan(open_pore)
-                display('Set cursors on a segment of open pore current.')
-                pause();
-                open_pore = mean(pv.data.get(pv.getCursors()/pv.data.si,2))*1000;
-            end
-            events{j}.open_pore_current = open_pore;
+            display('Set cursors on a segment of open pore current.')
+            pause();
+            events{j}.open_pore_current = mean(pv.data.get(pv.getCursors()/pv.data.si,2))*1000;
+            events{j}.voltage = mean(pv.data.get(pv.getCursors()/pv.data.si,3));
         else
             goodEvent(j) = false;
         end
@@ -131,7 +130,7 @@ i = 1;
 a = 1;
 while i <= numel(events)
     mol{a} = molecule(events{i});
-    if (events{i}.continues_past_end_of_file)
+    if (events{i}.continues_past_end_of_file) && numel(events)>i
         if (str2num(events{i+1}.start_file(end-6:end-4)) == str2num(events{i}.end_file(end-6:end-4))+1 ...
                 && events{i+1}.start_ind < 100)
             mol{a}.addData(events{i+1});
@@ -151,11 +150,11 @@ end
 
 % do the level analysis and save data
 for i = 1:numel(mol)
-    filter = 2000;
+    %filter = 2000;
     sampling = 5000;
     p = -25;
     display(['Molecule ' num2str(i) ' level analysis']);
-    mol{i}.do_level_analysis(filter, sampling, p);
+    mol{i}.do_level_analysis(sampling, p);
     mol{i}.save;
 end
 
@@ -163,26 +162,31 @@ end
 
 % adapterSF with the hairpin
 % 'R' = abasic
-%seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCTGTGAAGCTGCCGAGGTTTGACGCGARRRACATGACGGGATGCGGAATCTTTTGATTCCGCATCCCGTCATGTTGCTCGCGTCAAACCTCGGCAGCTTCACAGGAAATTCCTTGTAAAGTTCCAGTGATCGAAAATTTCCCAAAAATTTCCCTTTGAGGCGAGCGGTCAA';
-seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCT';
+seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCTGTGAAGCTGCCGAGGTTTGACGCGARRRACATGACGGGATGCGGAATCTTTTGATTCCGCATCCCGTCATGTTGCTCGCGTCAAACCTCGGCAGCTTCACAGGAAATTCCTTGTAAAGTTCCAGTGATCGAAAATTTCCCAAAAATTTCCCTTTGAGGCGAGCGGTCAA';
+%seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCT';
 
 for i = 1:numel(mol)
     display(['Molecule ' num2str(i) ' level alignment']);
     
-    % get the predicted levels from oxford
-    levs = abs(mol{i}.level_means);
-    hicut = 0.6 * abs(mol{i}.open_pore_current);
-    lowcut = 0.15 * abs(mol{i}.open_pore_current);
-    [model_levels, model_levels_std] = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), abs(mol{i}.open_pore_current), abs(mol{i}.voltage), mol{i}.temp);
-    mol{i}.predicted_levels = model_levels';
-    mol{i}.predicted_levels_stdev = model_levels_std';
-    mol{i}.sequence = seq;
-    
-    % do the alignment of measured levels to predictions
-    mol{i}.do_level_alignment;
-    
-    % save everything
-    mol{i}.save;
+    try
+        % get the predicted levels from oxford
+        levs = abs(mol{i}.level_means);
+        hicut = 0.6 * abs(mol{i}.open_pore_current);
+        lowcut = 0.15 * abs(mol{i}.open_pore_current);
+        %     [model_levels, model_levels_std] = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), abs(mol{i}.open_pore_current), abs(mol{i}.voltage), mol{i}.temp);
+        [model_levels, model_levels_std] = get_model_levels_my_M2(seq, levs(levs>lowcut & levs<hicut));
+        mol{i}.predicted_levels = model_levels';
+        mol{i}.predicted_levels_stdev = model_levels_std';
+        mol{i}.sequence = seq;
+        
+        % do the alignment of measured levels to predictions
+        mol{i}.do_level_alignment;
+        
+        % save everything
+        mol{i}.save;
+    catch ex
+        display(['Skipping alignment of molecule ' num2str(i) ': problems.']);
+    end
 end
 
 end

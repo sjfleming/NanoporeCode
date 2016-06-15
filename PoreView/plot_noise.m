@@ -34,8 +34,8 @@ function plot_noise(sigdata, trange)
     end
     
     close(wh);
-    temp = input('Temperature in degrees C: '); % in degrees C
-    %temp = 25;
+    %temp = input('Temperature in degrees C: '); % in degrees C
+    temp = 25;
 
     % do the averaging
     dfft = dfft / nframes;
@@ -104,11 +104,11 @@ function plot_noise(sigdata, trange)
     Rf = 500e6; % feedback resistor in Axopatch with beta = 1 in whole cell mode
     Cin = 5.5e-12; % headstage input capacitance is about 4pF
     V_headstage = 10e-9; % input voltage noise on headstage op-amp = 3nV/sqrt(Hz)
-    Ra = 4*2.24e7; % access resistance = rho/4*a (J.E. Hall, 1975), rho = 0.0895ohm*m for 1M KCl (http://www.sigmaaldrich.com/catalog/product/fluka/60131?lang=en&region=US), a = 1nm
-    Ra_mem = 9e3; % access resistance = rho/4*a for membrane with 10um estimate for bilayer
-    Cm = 0.25e-12; % typical membrane capacitance 2pF
+    Ra = 5.6e6; % access resistance = rho/4*a (J.E. Hall, 1975), rho = 0.0895ohm*m for 1M KCl (http://www.sigmaaldrich.com/catalog/product/fluka/60131?lang=en&region=US), a = 1nm
+    Cm = 0.25e-12; % typical membrane capacitance 0.2pF
     johnson = 4*k*T * ( 1/R + 1/Rf ) * 10^18;
     shot = 0; %2 * 1.602*1e-19 * abs(I) * 1e-12 * 10^18;
+    ion = 1.12e-9 * (I*1e-12)^2 * (1e9)^2; % ion number fluctuations proportional to current squared (10/20/16 data for MspA from Oxford)
     Y = @(f,Ra,Cm) sqrt(-1)*2*pi*f*Cin + 1./( Ra + 1./( 1/R + sqrt(-1)*2*pi*f.*Cm ) ) + 1./Rf; % complex conductance (admittance)
     headstage = V_headstage^2*real(Y(f,Ra,Cm).*conj(Y(f,Ra,Cm))) * 10^18;
     % the filter
@@ -116,21 +116,22 @@ function plot_noise(sigdata, trange)
     factor = 2/1.8031;
     [b,a] = besself(4,2*cutoff/factor);
     h = freqs(b,a,f);
-    noise_model = 4*k*T*real(Y(f,Ra,Cm)*1e18.*h.*conj(h)) + shot*real(h.*conj(h)) + headstage.*real(h.*conj(h));
-    display(' ')
-    display(['V = ' num2str(V,4) ' mV'])
-    display(['I = ' num2str(I,4) ' pA'])
-    display(['Johnson noise = ' num2str(johnson,3) ' nA^2/Hz'])
-    display(['Shot noise = ' num2str(shot,3) ' nA^2/Hz'])
-    display(['Sum = ' num2str(johnson+shot,3) ' nA^2/Hz'])
+    noise_model = 4*k*T*real(Y(f,Ra,Cm)*1e18.*h.*conj(h)) + ion*real(h.*conj(h)) + shot*real(h.*conj(h)) + headstage.*real(h.*conj(h));
+    %display(' ')
+    %display(['V = ' num2str(V,4) ' mV'])
+    %display(['I = ' num2str(I,4) ' pA'])
+    %display(['Johnson noise = ' num2str(johnson,3) ' nA^2/Hz'])
+    %display(['Shot noise = ' num2str(shot,3) ' nA^2/Hz'])
+    %display(['Sum = ' num2str(johnson+shot,3) ' nA^2/Hz'])
     i1 = find(f>80,1,'first');
     i2 = find(f>280,1,'first');
     measured_white = mean(dfft(i1:i2,1));
     measured_white_err = std(dfft(i1:i2,1))/sqrt(i2-i1+1);
-    display(['Measured white noise = ' num2str(measured_white,3) ' ± ' num2str(measured_white_err,2) ' nA^2/Hz'])
+    %display(['Measured white noise = ' num2str(measured_white,3) ' ± ' num2str(measured_white_err,2) ' nA^2/Hz'])
+    display([num2str(V,4) ', ' num2str(I,4) ', ' num2str(measured_white,3) ', ' num2str(measured_white_err,2) ';'])
     rms = sqrt(mean(dfft(i1:i2,1))*1e6*(f(i2)-f(i1)));
     rms_dev = sqrt(std(dfft(i1:i2,1))*1e6*(f(i2)-f(i1))/sqrt(i2-i1+1));
-    display(['Irms = ' num2str(rms,3) ' ± ' num2str(rms_dev,2) ' pA over a ' num2str(round(f(i2)-f(i1))) 'Hz bandwidth'])
+    %display(['Irms = ' num2str(rms,3) ' ± ' num2str(rms_dev,2) ' pA over a ' num2str(round(f(i2)-f(i1))) 'Hz bandwidth'])
     line([1 1e5],johnson*ones(1,2),'Color','k','LineStyle','--')
     hold on
     plot(f(1:imax)',dfft(1:imax,1));

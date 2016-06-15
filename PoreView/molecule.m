@@ -71,7 +71,7 @@ classdef molecule < handle & matlab.mixin.SetGet
                 obj.predicted_levels = event.predicted_levels;
             end
             if isfield(event,'predicted_levels_stdev')
-                obj.predicted_levels = event.predicted_levels;
+                obj.predicted_levels_stdev = event.predicted_levels_stdev;
             end
             if isfield(event,'level_means')
                 obj.level_means = event.level_means;
@@ -137,6 +137,16 @@ classdef molecule < handle & matlab.mixin.SetGet
                 obj.end_ind = event.end_ind;
                 obj.ended_manually = event.ended_manually;
                 obj.end_file = event.end_file;
+                if isempty(obj.voltage) || isnan(obj.voltage)
+                    if ~isempty(event.voltage) && ~isnan(event.voltage)
+                        obj.voltage = event.voltage;
+                    end
+                end
+                if isempty(obj.open_pore_current) || isnan(obj.open_pore_current)
+                    if ~isempty(event.open_pore_current) && ~isnan(event.open_pore_current)
+                        obj.open_pore_current = event.open_pore_current;
+                    end
+                end
             catch
                 display('Error: tried to add data that is incomplete.');
             end
@@ -145,89 +155,53 @@ classdef molecule < handle & matlab.mixin.SetGet
         % plot functions
         function f = plot_current(obj, varargin)
             % plot_current(filter, trange, sampling_frequency) optional inputs
-            n = 10000; % max number of points to plot per signal
-            if numel(varargin) == 0
-                filter_freq = 1000;
-                trange = [obj.start_time, obj.end_time];
-            elseif numel(varargin) == 1
-                filter_freq = varargin{1};
-                trange = [obj.start_time, obj.end_time];
-            elseif numel(varargin) == 2
-                filter_freq = varargin{1};
-                trange = varargin{2};
-                if ~(trange(1) >= obj.start_time && trange(2) <= obj.end_time) && ~strcmp(obj.start_file, obj.end_file)
-                    display('Requested time range is outside the range of the molecule.');
-                    return;
-                end
-            elseif numel(varargin) == 3
-                filter_freq = varargin{1};
-                trange = varargin{2};
-                if ~(trange(1) >= obj.start_time && trange(2) <= obj.end_time) && ~strcmp(obj.start_file, obj.end_file)
-                    display('Requested time range is outside the range of the molecule.');
-                    return;
-                end
-                n = diff(trange) * varargin{3};
-            end
+            
+            % handle inputs
+            in = obj.parseOptionalInputs(varargin{:});
+            filter_freq = in.filter;
+            trange = in.trange;
+            
+            n = 5000; % max number of points to plot per signal
+            d = util.doLoadMoleculeData(obj, n, 'minmax', filter_freq, trange);
+            v = util.doLoadMoleculeViewData(obj, n, trange);
+            
             cmap = get(groot,'defaultAxesColorOrder');
             
             f = figure();
-            sigdata = SignalData(obj.start_file);
-            filtname = sprintf('4-pole Low-pass Bessel (%d Hz)', filter_freq);
-            fsigs = sigdata.addVirtualSignal(@(d) filt_lpb(d,4,filter_freq),filtname);
             
-            % check to see if we are using one or two files
-            if (strcmp(obj.start_file, obj.end_file) || trange(2) > trange(1))
-                current = abs(util.downsample_pointwise(sigdata,fsigs(1),trange,n)*1000); % filtered data, in pA
-                current_raw = abs(util.downsample_minmax(sigdata,2,trange,n)*1000); % in pA
-                time = linspace(trange(1), trange(2), numel(current));
-            else
-                sigdata2 = SignalData(obj.end_file);
-                n1 = (sigdata.tend - trange(1)) / (trange(2) + sigdata.tend - trange(1)) * n;
-                n2 = (trange(2)) / (trange(2) + sigdata.tend - trange(1)) * n;
-                trange1 = [trange(1), sigdata.tend];
-                current1 = abs(util.downsample_pointwise(sigdata,fsigs(1),trange1,n1)*1000); % filtered data, in pA
-                current_raw1 = abs(util.downsample_minmax(sigdata,2,trange1,n1)*1000); % in pA
-                trange2 = [0, trange(2)];
-                fsigs2 = sigdata2.addVirtualSignal(@(d) filt_lpb(d,4,filter_freq),filtname);
-                current2 = abs(util.downsample_pointwise(sigdata2,fsigs2(1),trange2,n2)*1000); % filtered data, in pA
-                current_raw2 = abs(util.downsample_minmax(sigdata2,2,trange2,n2)*1000); % in pA
-                current = [current1, current2];
-                current_raw = [current_raw1, current_raw2];
-                time = linspace(trange(1), sigdata.tend + trange(2), numel(current));
+            % adjust the axes if a specific time window was requested,
+            % since loading returns time starting from zero
+            if ~isempty(trange)
+                d(:,1) = d(:,1)+trange(1);
+                v(:,1) = v(:,1)+trange(1);
             end
             
             % plot
-            plot(time,current_raw(1:numel(time)),'Color',0.8*ones(1,3)) % concatenates if off by a few points in length
+            plot(v(:,1),v(:,2),'Color',0.8*ones(1,3)) % concatenates if off by a few points in length
             hold on
-            plot(time,current,'Color','k')
-            xlim([time(1), time(end)]);
+            plot(d(:,1),d(:,2),'Color','k')
+            xlim([d(1,1), d(end,1)]);
             buff = 100;
-            ylimits = [max(0,min(current_raw(buff:end-buff))-20), max(current_raw(buff:end-buff))+20];
+            ylimits = [max(0,min(d(buff:end-buff,2))-20), max(d(buff:end-buff,2))+30];
             ylim(ylimits);
+            % include pulses if we have them
+            sigdata = SignalData(obj.end_file);
             if (sigdata.nsigs == 3)
                 % check if we need a second file
-                if (strcmp(obj.start_file, obj.end_file) || trange(2) > trange(1))
-                    obj.pulses = obj.getPulseTiming(sigdata, 4, trange);
-                else
-                    trange1 = [trange(1), sigdata.tend];
-                    trange2 = [0, trange(2)];
-                    pulses1 = obj.getPulseTiming(sigdata, 4, trange1);
-                    pulses2 = obj.getPulseTiming(sigdata2, 4, trange2);
-                    obj.pulses = [pulses1, pulses2]; % concatenate
-                end
+                obj.pulses = obj.getPulseTiming(obj, 4, trange);
                 line(ones(2,1)*obj.pulses,ylimits'*ones(size(obj.pulses)),'Color','r') % red vertical line at each pulse
             end
             % pretty it up
             title(['Full molecule sliding, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) ...
                 '°C : ' obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4)],'FontSize',24)
-            if (trange(2) < trange(1) && ~strcmp(obj.start_file, obj.end_file) )
+            if ~strcmp(obj.start_file, obj.end_file)
                 title(['Full molecule sliding, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) ...
                     '°C : ' obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4) ...
                     ' - ' obj.end_file(end-7:end-4)],'FontSize',24)
             end
             xlabel('Time (s)')
             ylabel('Current (pA)')
-            annotation('textbox', [0.8 0.87 0 0], 'String', [num2str(filter_freq) 'Hz'], 'FontSize', 20, 'Color', 'k');
+            annotation('textbox', [0.78 0.87 0 0], 'String', [num2str(filter_freq) 'Hz'], 'FontSize', 20, 'Color', 'k');
             set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
             set(gca,'OuterPosition',[0.01 0.01 0.98 0.98]) % fit everything in there
             set(gcf,'Position',[-1048, 803, 1000, 400]) % size the figure
@@ -235,9 +209,12 @@ classdef molecule < handle & matlab.mixin.SetGet
             set(gca,'FontSize',24)
         end
         
-        function f = plot_squiggle(obj)
+        function f = plot_squiggle(obj, varargin)
+            % plot squiggle, optional arguments determine level refinement
             f = figure();
-            plot(1:numel(obj.level_means),abs(obj.level_means),'o-')
+            l = obj.get_robust_levels(varargin{:});
+            errorbar(1:numel(l.level_means),abs(l.level_means),l.level_stds,'o-')
+            
             title(['Squiggle data, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
             xlabel('Level')
             ylabel('Mean current (pA)')
@@ -245,7 +222,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             annotation('textbox', [0.8 0.87 0 0], 'String', ...
                 [obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4) ...
                 ' [' num2str(round(obj.start_time)) ',' num2str(round(obj.end_time)) '] ' ...
-                num2str(obj.level_finding_params.filter) 'Hz, p=' num2str(obj.level_finding_params.p)], ...
+                ' p=' num2str(obj.level_finding_params.p)], ...
                 'FontSize', 20);
             set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
             set(gca,'OuterPosition',[0.01 0.01 0.98 0.98]) % fit everything in there
@@ -257,15 +234,14 @@ classdef molecule < handle & matlab.mixin.SetGet
         function f = plot_levels(obj,varargin)
             % plot_levels(trange) optional input.  if trange is specified,
             % this will use the actual sampling for the plot.
-            if (numel(varargin)==1)
-                f = obj.plot_current(obj.level_finding_params.filter,varargin{1},obj.level_finding_params.sampling);
-            else
-                f = obj.plot_current(obj.level_finding_params.filter);
-            end
+            
+            f = obj.plot_current(varargin{:});
+            
             hold on
-            line(obj.level_timing',(abs(obj.level_means)*[1,1])','LineWidth',2);
-            line(obj.level_alignment.level_timing',(abs(obj.level_alignment.level_means)*[1,1])','LineWidth',3,'Color','r');
-            title(['Found levels, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
+            line(obj.level_timing'-obj.level_timing(1,1),(abs(obj.level_means)*[1,1])','LineWidth',2);
+            robust_levs = obj.get_robust_levels(varargin{:});
+            line(robust_levs.level_timing'-robust_levs.level_timing(1,1),(abs(robust_levs.level_means)*[1,1])','LineWidth',3,'Color','r');
+            title(['Found levels, ' num2str(round(obj.voltage)) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
             xlabel('Time (s)')
             ylabel('Current (pA)')
             annotation('textbox', [0.8 0.82 0 0], 'String', ...
@@ -283,7 +259,9 @@ classdef molecule < handle & matlab.mixin.SetGet
             % plot the alignment information
             % if alignment hasn't been done, do it
             if ~isfield(obj.level_alignment,'model_level_assignment')
-                obj.do_level_alignment;
+                %obj.do_iterative_scaling_alignment;
+                display('Alignment not completed!')
+                return;
             end
             f = figure();
             
@@ -330,19 +308,42 @@ classdef molecule < handle & matlab.mixin.SetGet
             set(f,'position',[-1049, -382, 1050, 1585]);
         end
         
+        function f = plot_enzyme_location(obj)
+            
+            f = figure();
+            logic = obj.level_alignment.level_type==1;
+            plot(obj.level_alignment.model_level_assignment(logic),'o-')
+            xlabel('Measured level')
+            xlim([0, numel(obj.level_means)+1])
+            
+            t = cumsum(diff(obj.level_timing,1,2));
+            logic = obj.level_alignment.level_type==1;
+            plot(t(logic), obj.level_alignment.model_level_assignment(logic),'o-')
+            xlabel('Time (s)')
+            xlim([0, t(end)+1])
+            
+            title(['Enzyme position, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
+            ylabel(['Location on DNA strand' sprintf('\n') 'Model level number'])
+            annotation('textbox', [0.12 0.87 0 0], 'String', ...
+                [obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4) ...
+                ' [' num2str(round(obj.start_time)) ',' num2str(round(obj.end_time)) '] ' ...
+                num2str(obj.level_finding_params.filter) 'Hz, p=' num2str(obj.level_finding_params.p)], ...
+                'FontSize', 20);
+            set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
+            set(gca,'OuterPosition',[0.01 0.01 0.98 0.98]) % fit everything in there
+            set(gcf,'Position',[-1048, 803, 1000, 400]) % size the figure
+            set(gcf,'Color',[1 1 1])
+            set(gca,'FontSize',24)
+            
+        end
+        
         function p = plot_pulse_scatter(obj, varargin)
             % plot_pulse_scatter(filter, pA_threshhold)
             
-            if numel(varargin)==0
-                filter = 10000;
-                pA_threshhold = 5;
-            elseif numel(varargin)==1
-                filter = varargin{1};
-                pA_threshhold = 5;
-            else
-                filter = varargin{1};
-                pA_threshhold = varargin{2};
-            end
+            % handle inputs
+            in = obj.parseOptionalInputs(varargin{:});
+            filter = in.filter;
+            pA_threshhold = in.threshhold;
             
             f = figure();
             hold on
@@ -385,12 +386,10 @@ classdef molecule < handle & matlab.mixin.SetGet
         function f = plot_pulse(obj, varargin)
             % plot_pulse_scatter(pulse_number)
             
-            filter = 10000;
-            if numel(varargin)==0
-                num = input('Input pulse number: ');
-            else
-                num = varargin{1};
-            end
+            % handle inputs
+            in = obj.parseOptionalInputs(varargin{:});
+            filter = in.filter;
+            num = in.pulsenum;
             
             f = figure(1);
             clf(1)
@@ -420,43 +419,22 @@ classdef molecule < handle & matlab.mixin.SetGet
             end
         end
         
-        function levels = do_level_analysis(obj, filter, downsample_frequency, p)
+        function levels = do_level_analysis(obj, varargin)
             
-            % access the data and filter and downsample
-            sigdata = SignalData(obj.start_file);
-            filtname = sprintf('4-pole Low-pass Bessel (%d Hz)', filter);
-            fsigs = sigdata.addVirtualSignal(@(d) filt_lpb(d,4,filter),filtname);
+            % handle inputs
+            in = obj.parseOptionalInputs(varargin{:});
+            filter = in.filter;
+            downsample_frequency = in.sample;
+            p = in.plevels;
             
-            % if there are pulses, remove a time range around each to eliminate spikes
-            % this is very necessary.  for some reason, spikes thow it off.
-            if sigdata.nsigs>2
-                obj.pulses = obj.getPulseTiming();
-                fsigs = sigdata.addVirtualSignal(@(d) filt_rmrange(d,[obj.pulses', obj.pulses'+1.4e-3, nan(size(obj.pulses'))]),'spikes removed');
-            end
-            
-            % check to see if we are using one or two files
-            if strcmp(obj.start_file, obj.end_file)
-                n = (obj.end_ind - obj.start_ind) * downsample_frequency*sigdata.si;
-                trange = [obj.start_time, obj.end_time];
-                current = util.downsample_pointwise(sigdata,fsigs(1),trange,n)*1000; % filtered data, in pA
-                time = linspace(trange(1), trange(2), numel(current));
-            else
-                sigdata2 = SignalData(obj.end_file);
-                n1 = (sigdata.ndata - obj.start_ind) * downsample_frequency*sigdata.si;
-                n2 = obj.end_ind * downsample_frequency*sigdata2.si;
-                trange1 = [obj.start_time, sigdata.tend];
-                current1 = util.downsample_pointwise(sigdata,fsigs(1),trange1,n1)*1000; % filtered data, in pA
-                trange2 = [0, obj.end_time];
-                fsigs2 = sigdata2.addVirtualSignal(@(d) filt_lpb(d,4,filter),filtname);
-                current2 = util.downsample_pointwise(sigdata2,fsigs2(1),trange2,n2)*1000; % filtered data, in pA
-                current = [current1, current2];
-                time = linspace(obj.start_time, sigdata.tend + obj.end_time, numel(current));
-            end
-            obj.voltage = round(mean(sigdata.get(obj.start_ind:obj.start_ind+100,3))); % voltage in mV to nearest mV
+            % load data
+            f = util.getMoleculeFilesAndTimes(obj);
+            t = sum(f(:,3)-f(:,2)); % total molecule time
+            d = util.doLoadMoleculeData(obj, min(5e6, downsample_frequency*t), 'pointwise', filter);
             
             % use Laszlo's level-finding algorithm to find levels
             pad = 10;
-            levels = laszlo_levels([time(pad:end-pad)', current(pad:end-pad)'],p);
+            levels = laszlo_levels([d(pad:end-pad,1), d(pad:end-pad,2)],p);
             
             % package the data
             obj.level_means = cellfun(@(x) x.current_mean, levels);
@@ -464,8 +442,8 @@ classdef molecule < handle & matlab.mixin.SetGet
             obj.level_stds = cellfun(@(x) x.current_std, levels);
             obj.level_timing = [cellfun(@(x) x.start_time, levels), cellfun(@(x) x.end_time, levels)];
             obj.level_finding_params.p = p;
-            obj.level_finding_params.filter = filter;
             obj.level_finding_params.sampling = downsample_frequency;
+            obj.level_finding_params.filter = filter;
             
         end
         
@@ -475,10 +453,12 @@ classdef molecule < handle & matlab.mixin.SetGet
             
             % get the initial predicted levels from oxford
             levs = abs(obj.level_means);
-            hicut = 0.6 * abs(obj.open_pore_current);
-            lowcut = 0.15 * abs(obj.open_pore_current);
+            hicut = 0.55 * abs(obj.open_pore_current);
+            lowcut = 0.1 * abs(obj.open_pore_current);
+%             [model_levels, model_levels_std] = ...
+%                 get_model_levels_oxford(obj.sequence, levs(levs>lowcut & levs<hicut), abs(obj.open_pore_current), abs(obj.voltage), obj.temp);
             [model_levels, model_levels_std] = ...
-                get_model_levels_oxford(obj.sequence, levs(levs>lowcut & levs<hicut), abs(obj.open_pore_current), abs(obj.voltage), obj.temp);
+                get_model_levels_my_M2(obj.sequence, levs(levs>lowcut & levs<hicut));
             
             % save the initial scaling
             obj.predicted_levels = model_levels';
@@ -496,6 +476,10 @@ classdef molecule < handle & matlab.mixin.SetGet
                 lsqdist(end+1) = sum((obj.level_alignment.model_levels_measured_mean_currents(logic) - obj.predicted_levels(logic)).^2) / sum(logic);
                 if numel(lsqdist)>1
                     dfit = abs(lsqdist(end)-lsqdist(end-1));
+                end
+                if sum(logic)<2
+                    display('Cannot do iterative fitting, too far off.')
+                    break;
                 end
                 % do a least-squares fit
                 f = fit(obj.level_alignment.model_levels_measured_mean_currents(logic),obj.predicted_levels(logic), ...
@@ -570,7 +554,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             obj.level_alignment.level_means = lmean';
             obj.level_alignment.level_medians = lmed';
             obj.level_alignment.level_stds = lstd';
-            obj.level_alignment.level_timing = ltime;
+            obj.level_alignment.level_timing = ltime - ltime(1,1); % zero at beginning of molecule
             
         end
         
@@ -583,19 +567,22 @@ classdef molecule < handle & matlab.mixin.SetGet
             end
         end
         
-        function levs = get_robust_levels(obj, p_s, p_n)
+        function levs = get_robust_levels(obj, varargin)
             % combines levels it thinks are stays
             % eliminates levels it thinks are noise
             % but all without actually aligning to a model set of levels
+            
+            % handle inputs
+            in = obj.parseOptionalInputs(varargin{:});
+            p_s = in.pstay;
+            p_n = in.pnoise;
+            
             lev = abs(obj.level_means);
             dur = obj.level_timing(:,2)-obj.level_timing(:,1);
             tau = 1e-3;
             levs.level_means(1) = lev(1);
             levs.level_stds(1) = obj.level_stds(1);
             levs.level_timing(1,:) = obj.level_timing(1,:);
-            
-            %obj.plot_current;
-            %hold on
             
             for i = 2:numel(lev)
                 % probability this is a stay
@@ -631,44 +618,22 @@ classdef molecule < handle & matlab.mixin.SetGet
                 p1(i) = p_stay;
                 p2(i) = p_noise;
             end
-            
-            if nargout == 0
-                xx = logspace(-100,1,500);
-                figure(5)
-                clf(5)
-                subplot(3,1,1)
-                y1 = hist(p1,xx);
-                bar(xx,y1)
-                ylim([0, max(y1(2:end))])
-                set(gca,'xscale','log')
-                title('stay')
-                subplot(3,1,2)
-                y2 = hist(p2,xx);
-                bar(xx,y2)
-                ylim([0, max(y2(2:end))])
-                set(gca,'xscale','log')
-                title('noise')
-
-                % plot them
-                subplot(3,1,3)
-                line(obj.level_timing',(abs(obj.level_means)*[1,1])','LineWidth',2);
-                hold on
-                line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',3,'Color','k');
-            end
-            
         end
         
-        function n = get_alignment_stats(obj,last_level_of_interest)
+        function n = get_alignment_stats(obj, model_levels_of_interest)
             % return alignment statistics pertaining to coverage and
             % forward and backward steps
             
             if nargin < 2
-                last_level_of_interest = numel(obj.sequence);
+                model_levels_of_interest = 1:numel(obj.predicted_levels);
+            end
+            if strcmp(model_levels_of_interest,'end')
+                model_levels_of_interest(2) = numel(obj.predicted_levels);
             end
             
             % go through the levels and count
             assignments = obj.level_alignment.model_level_assignment;
-            real_levels = obj.level_alignment.level_type == 1 & assignments <= last_level_of_interest;
+            real_levels = obj.level_alignment.level_type == 1 & ismember(assignments, model_levels_of_interest);
             ll = assignments(real_levels);
             
             n.skips = 0;
@@ -702,11 +667,66 @@ classdef molecule < handle & matlab.mixin.SetGet
             n.model_levels_never_covered = sum(isnan(obj.level_alignment.model_levels_measured_mean_currents(1:find(~isnan(obj.level_alignment.model_levels_measured_mean_currents),1,'last'))));
         end
         
+        function kappa = pulse_correlation_metric(obj)
+            % a metric for correlation between pulses and level changes
+            
+            if isnan(obj.pulses)
+                kappa = nan;
+                return;
+            end
+            if isempty(obj.pulses)
+                kappa = nan;
+                return;
+            end
+            
+            % cumulative distribution function for level durations
+            n = obj.get_robust_levels(-6,-5);
+            tau = mean(diff(n.level_timing,1,2));
+            c_d_f = @(t) 1 - exp(-1*t/tau);
+            
+            % get pulse timings and level change timings
+            level_change_timings = n.level_timing(:,2);
+            pulse_timings = obj.pulses;
+            
+            % only look at level changes during pulsing time
+            i1 = find(level_change_timings>pulse_timings(1),1,'first');
+            i2 = find(level_change_timings>pulse_timings(end),1,'first');
+            level_change_timings = level_change_timings(i1:i2);
+            
+            % calculate p value for each pulse
+            p = nan(1,numel(pulse_timings));
+            for i = 1:numel(pulse_timings)-1
+                ind = find(level_change_timings>pulse_timings(i)&level_change_timings<pulse_timings(i+1),1,'first'); % closest level change
+                if ~isempty(ind)
+                    p(i) = c_d_f(level_change_timings(ind)-pulse_timings(i));
+                end
+            end
+            
+            % calculate kappa
+            bins = ceil(numel(pulse_timings)/10);
+            bincenters = 1/bins/2 : 1/bins : 1 - 1/bins/2;
+            n = hist(p, bincenters);
+            kappa = sqrt( std(n)^2*bins / numel(p)^2 );
+            
+            % plot if no arguments passed out
+            if nargout==0
+                figure(1)
+                clf(1)
+                bar(bincenters,n)
+                xlabel('p value')
+                ylabel('Number of pulses')
+                title(['kappa = ' num2str(kappa,2)])
+                set(gca,'fontsize',20)
+                display(kappa)
+            end
+            
+        end
+        
     end
     
     methods (Access = private)
         
-        function p = getPulseTiming(obj, varargin)
+        function p = getPulseTiming(obj, varargin) % NEEDS UPDATE!
             % getPulseTiming(sigdata, channel, trange)
             % check if we've done this already
             if ~isnan(obj.pulses)
@@ -744,6 +764,38 @@ classdef molecule < handle & matlab.mixin.SetGet
                     p(end+1) = sigdata.findNext(@(x) x(:,4)>0.1, ind) * sigdata.si;
                 end
             end
+        end
+        
+        function in = parseOptionalInputs(obj, varargin)
+            % use inputParser to figure out what all these inputs mean
+            p = inputParser;
+            
+            % defaults and checks
+            defaultFilterFreq = 1000;
+            defaultSampleFreq = 5000;
+            checkFilterFreq = @(x) all([isnumeric(x),x>=10,x<=20000]);
+            
+            defaultTimeRange = [0, obj.level_timing(end,2)-obj.level_timing(1,1)]; % full molecule
+            checkTimeRange = @(x) all([x(1)>=0, x(1)<x(2), diff(x)<=obj.level_timing(end,2)-obj.level_timing(1,1)]);
+            
+            defaultPstay = -4;
+            defaultPnoise = -10;
+            defaultPlevels = -15;
+            checkP = @(x) all([isnumeric(x), x<0]);
+            
+            % set up the inputs
+            addOptional(p,'filter',defaultFilterFreq,checkFilterFreq);
+            addOptional(p,'sample',defaultSampleFreq,checkFilterFreq);
+            addOptional(p,'trange',defaultTimeRange,checkTimeRange);
+            addOptional(p,'pstay',defaultPstay,checkP);
+            addOptional(p,'pnoise',defaultPnoise,checkP);
+            addOptional(p,'plevels',defaultPlevels,checkP);
+            addOptional(p,'pulsenum',[],@isnumeric);
+            addOptional(p,'threshhold',5,@isnumeric);
+            
+            % parse
+            parse(p,varargin{:});
+            in = p.Results;
         end
         
     end

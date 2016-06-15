@@ -10,8 +10,8 @@ function kappa = correlation_metric(pulse_timings, level_change_timings, tau)
     
     % calculate p value for each pulse
     p = nan(1,numel(pulse_timings));
-    for i = 1:numel(pulse_timings)
-        ind = find(level_change_timings>pulse_timings(i),1,'first'); % closest level change
+    for i = 1:numel(pulse_timings)-1
+        ind = find(level_change_timings>pulse_timings(i)&level_change_timings<pulse_timings(i+1),1,'first'); % closest level change before next pulse
         if ~isempty(ind)
             p(i) = cdf(level_change_timings(ind)-pulse_timings(i), tau);
         end
