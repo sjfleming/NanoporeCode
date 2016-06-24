@@ -457,8 +457,8 @@ classdef molecule < handle & matlab.mixin.SetGet
             lowcut = 0.1 * abs(obj.open_pore_current);
 %             [model_levels, model_levels_std] = ...
 %                 get_model_levels_oxford(obj.sequence, levs(levs>lowcut & levs<hicut), abs(obj.open_pore_current), abs(obj.voltage), obj.temp);
-            [model_levels, model_levels_std] = ...
-                get_model_levels_my_M2(obj.sequence, levs(levs>lowcut & levs<hicut));
+            [model_levels, model_levels_std,~,~] = ...
+                get_model_levels_M2(obj.sequence, levs(levs>lowcut & levs<hicut));
             
             % save the initial scaling
             obj.predicted_levels = model_levels';
@@ -775,13 +775,22 @@ classdef molecule < handle & matlab.mixin.SetGet
             defaultSampleFreq = 5000;
             checkFilterFreq = @(x) all([isnumeric(x),x>=10,x<=20000]);
             
-            defaultTimeRange = [0, obj.level_timing(end,2)-obj.level_timing(1,1)]; % full molecule
+%             if ~isnan(obj.level_timing)
+%                 defaultTimeRange = [0, obj.level_timing(end,2)-obj.level_timing(1,1)]; % full molecule
+%             else
+%                 if strcmp(obj.start_file,obj.end_file)
+%                     defaultTimeRange = [0, obj.end_time-obj.start_time];
+%                 else
+%                     defaultTimeRange = [0 1];
+%                 end
+%             end
+            defaultTimeRange = [];
             checkTimeRange = @(x) all([x(1)>=0, x(1)<x(2), diff(x)<=obj.level_timing(end,2)-obj.level_timing(1,1)]);
             
             defaultPstay = -4;
             defaultPnoise = -10;
             defaultPlevels = -15;
-            checkP = @(x) all([isnumeric(x), x<0]);
+            checkP = @(x) all([isnumeric(x), x<=0]);
             
             % set up the inputs
             addOptional(p,'filter',defaultFilterFreq,checkFilterFreq);
@@ -801,4 +810,3 @@ classdef molecule < handle & matlab.mixin.SetGet
     end
     
 end
-

@@ -148,46 +148,48 @@ while i <= numel(events)
     a = a+1;
 end
 
-% do the level analysis and save data
-for i = 1:numel(mol)
-    %filter = 2000;
-    sampling = 5000;
-    p = -25;
-    display(['Molecule ' num2str(i) ' level analysis']);
-    mol{i}.do_level_analysis(sampling, p);
-    mol{i}.save;
-end
+% % do the level analysis and save data
+% for i = 1:numel(mol)
+%     filter = 1000;
+%     sampling = 5000;
+%     p = -15;
+%     display(['Molecule ' num2str(i) ' level analysis']);
+%     mol{i}.do_level_analysis('sample', sampling, 'plevels', p, 'filter', filter);
+%     mol{i}.save;
+% end
+% 
+% % add in the sequence data and align levels to predictions
+% 
+% % adapterSF with the hairpin
+% % 'R' = abasic
+% seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCTGTGAAGCTGCCGAGGTTTGACGCGARRRACATGACGGGATGCGGAATCTTTTGATTCCGCATCCCGTCATGTTGCTCGCGTCAAACCTCGGCAGCTTCACAGGAAATTCCTTGTAAAGTTCCAGTGATCGAAAATTTCCCAAAAATTTCCCTTTGAGGCGAGCGGTCAA';
+% %seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCT';
+% 
+% for i = 1:numel(mol)
+%     display(['Molecule ' num2str(i) ' level alignment']);
+%     
+%     try
+%         % get the predicted levels from oxford
+%         levs = abs(mol{i}.level_means);
+%         hicut = 0.6 * abs(mol{i}.open_pore_current);
+%         lowcut = 0.15 * abs(mol{i}.open_pore_current);
+%         %     [model_levels, model_levels_std] = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), abs(mol{i}.open_pore_current), abs(mol{i}.voltage), mol{i}.temp);
+%         [model_levels, model_levels_std] = get_model_levels_my_M2(seq, levs(levs>lowcut & levs<hicut));
+%         mol{i}.predicted_levels = model_levels';
+%         mol{i}.predicted_levels_stdev = model_levels_std';
+%         mol{i}.sequence = seq;
+%         
+%         % do the alignment of measured levels to predictions
+%         mol{i}.do_level_alignment;
+%         
+%         % save everything
+%         mol{i}.save;
+%     catch ex
+%         display(['Skipping alignment of molecule ' num2str(i) ': problems.']);
+%     end
+% end
 
-% add in the sequence data and align levels to predictions
-
-% adapterSF with the hairpin
-% 'R' = abasic
-seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCTGTGAAGCTGCCGAGGTTTGACGCGARRRACATGACGGGATGCGGAATCTTTTGATTCCGCATCCCGTCATGTTGCTCGCGTCAAACCTCGGCAGCTTCACAGGAAATTCCTTGTAAAGTTCCAGTGATCGAAAATTTCCCAAAAATTTCCCTTTGAGGCGAGCGGTCAA';
-%seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCT';
-
-for i = 1:numel(mol)
-    display(['Molecule ' num2str(i) ' level alignment']);
-    
-    try
-        % get the predicted levels from oxford
-        levs = abs(mol{i}.level_means);
-        hicut = 0.6 * abs(mol{i}.open_pore_current);
-        lowcut = 0.15 * abs(mol{i}.open_pore_current);
-        %     [model_levels, model_levels_std] = get_model_levels_oxford(seq, levs(levs>lowcut & levs<hicut), abs(mol{i}.open_pore_current), abs(mol{i}.voltage), mol{i}.temp);
-        [model_levels, model_levels_std] = get_model_levels_my_M2(seq, levs(levs>lowcut & levs<hicut));
-        mol{i}.predicted_levels = model_levels';
-        mol{i}.predicted_levels_stdev = model_levels_std';
-        mol{i}.sequence = seq;
-        
-        % do the alignment of measured levels to predictions
-        mol{i}.do_level_alignment;
-        
-        % save everything
-        mol{i}.save;
-    catch ex
-        display(['Skipping alignment of molecule ' num2str(i) ': problems.']);
-    end
-end
+display('Complete.')
 
 end
 

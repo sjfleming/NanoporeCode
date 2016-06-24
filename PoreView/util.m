@@ -21,7 +21,6 @@ classdef util
             % first find the open pore current by doing a histogram
             tr = [sigdata.tstart, sigdata.tend];
             del = 0.01; % in nS
-            % del = 0.1; % in pA
             raw = sigdata.getViewData(tr);
             voltage = medfilt1(raw(:,3),10); % get rid of weird spikes (artifact of SignalData min/max downsampling)!!
             if (sigdata.nsigs > 2) % we have pulses
@@ -36,19 +35,6 @@ classdef util
             current = abs(current);
             voltage = abs(voltage);
             conductance = current ./ voltage;
-            %             vx = 0:1:300;
-            %             hvoltage = hist(voltage,vx);
-            %             v1 = find(hvoltage>1e5,1,'last');
-            %             v2 = find(hvoltage(1:v1)<1e5,1,'last');
-            %             V = sum(hvoltage(v2:v1)*1.*vx(v2:v1))/sum(hvoltage(v2:v1)*1);
-            %             dt = raw(2,1)-raw(1,1);
-            %             clear raw;
-            %             lowCurrent = min(current);
-            %             highCurrent = max(current);
-            %             xcurrent = lowCurrent-5:del:highCurrent+5;
-            %             hcurrent = hist(current,xcurrent);
-            %             i1 = find(hcurrent>1e3,1,'last');
-            %             i2 = find(hcurrent(1:i1)<1e3,1,'last');
             % get mean open pore conductance
             V = 120; % lowest sliding voltage
             dt = raw(2,1)-raw(1,1);
@@ -57,17 +43,11 @@ classdef util
             highCond = min(5,max(conductance));
             xcond = lowCond-0.1:del:highCond+0.1;
             hcond = hist(conductance(voltage>5 & conductance<highCond),xcond);
-%             i1 = find(hcond>1e5,1,'last');
-%             i2 = find(hcond(1:i1)<1e5,1,'last');
-%             mean_open = sum(hcond(i2:i1)*del.*xcond(i2:i1))/sum(hcond(i2:i1)*del);
             [~,ind] = max(hcond(hcond>1.9));
             mean_open = xcond(ind);
             if isempty(mean_open) || (mean_open < 1)
                 mean_open = 2.1;
             end
-            %             display(mean_open)
-            %             figure()
-            %             hist(conductance(voltage>5 & conductance<highCond),xcond)
             % find the periods with current blocked between open levels,
             % and voltage high
             blockEndInd = 1;
@@ -144,11 +124,12 @@ classdef util
                     events{i}.ended_manually = endedManually;
                     events{i}.continues_past_end_of_file = goesBeyondFile;
                     event_voltage = voltage(blockStartInd:blockEndInd);
-                    events{i}.voltage = mode(round(event_voltage(event_voltage>80)));
+                    events{i}.voltage = mode(round(event_voltage(event_voltage>80)*100)/100);
                     indCondBaseline = blockEndInd + find(conductance(blockEndInd:end)>mean_open*0.9,1,'first');
+                    indCondBaselineEnd = blockEndInd + find(conductance(blockEndInd:end)<mean_open*0.9,1,'first')-1;
                     if ~isempty(indCondBaseline)
                         indVoltageSame = indCondBaseline + find((voltage(indCondBaseline:end)>events{i}.voltage*1.05 | voltage(indCondBaseline:end)<events{i}.voltage*0.95),1,'first');
-                        events{i}.open_pore_current = mean(current(indCondBaseline:min(indCondBaseline+500,indVoltageSame)));
+                        events{i}.open_pore_current = mean(current(indCondBaseline:min([indCondBaselineEnd,indCondBaseline+500,indVoltageSame])));
                     else
                         events{i}.open_pore_current = [];
                     end
@@ -159,60 +140,19 @@ classdef util
             
             % find the exact starts and ends based on the rough indices
             display('refinement.');
-            i = 1;
-            %             if numel(events)==0
-            %                 % if there are no events, ask to find them manually
-            %                 display('Unable to find events.')
-            %                 answer = input('Would you like to find events manually? (y/n): ','s');
-            %                 while ~strcmp(answer,'n')
-            %                     display('Set the cursors to the edges of the event, then hit any key when ready.')
-            %                     pause();
-            %                     trange = pv.getCursors();
-            %                     events{i}.start_ind = trange(1)/pv.data.si;
-            %                     events{i}.end_ind = trange(2)/pv.data.si;
-            %                     events{i}.start_time = trange(1);
-            %                     events{i}.end_time = trange(2);
-            %                     % figure out if it goes beyond the end of the file (end near end of file, voltage still on)
-            %                     goesBeyondFile = false;
-            %                     if (abs(pv.data.tend - trange(2)) < 0.002 ...
-            %                         && round(mean(pv.data.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) > 50)
-            %                         goesBeyondFile = true;
-            %                     end
-            %                     events{i}.continues_past_end_of_file = goesBeyondFile;
-            %                     mean_open = mean(pv.data.get([trange(2)+1e-4, trange(2)+1e-3]/pv.data.si,2))*1000;
-            %                     current_input = input(['Enter the mean open pore current, or just hit enter if it is ' num2str(round(mean_open)) 'pA : ']);
-            %                     if ~isempty(current_input)
-            %                         mean_open = current_input;
-            %                     end
-            %                     events{i}.open_pore_current = mean_open;
-            %                     events{i}.voltage = abs(round(mean(sigdata.get([trange(1), trange(1)+0.001]/pv.data.si,3))));
-            %                     % figure out if it was ended manually
-            %                     endedManually = false;
-            %                     if round(mean(sigdata.get([trange(2), min(pv.data.tend, trange(2)+0.003)]/pv.data.si,3))) < 50
-            %                         endedManually = true;
-            %                     end
-            %                     events{i}.ended_manually = endedManually;
-            %                     i = i+1;
-            %                     answer = input('Would you like to locate another event? (y/n): ','s');
-            %                 end
-            %                 clear pv;
-            %                 if ishandle(1)
-            %                     close(1)
-            %                 end
-            %             end
             
             % events were located, go through events
             for j = 1:numel(events)
                 % start
                 % make sure that if voltage changes, we start at the right spot
                 initial = events{j}.start_ind;
-                events{j}.start_ind = events{j}.start_ind + find(round(voltage(events{j}.start_ind:events{j}.end_ind))==events{j}.voltage,1,'first') - 1;
+                events{j}.start_ind = events{j}.start_ind + find(round(voltage(events{j}.start_ind:events{j}.end_ind))==round(events{j}.voltage),1,'first') - 1;
                 inds = events{j}.start_ind + [-5, 5];
                 inds = min(max([0,0], dt*inds / sigdata.si),[sigdata.ndata, sigdata.ndata]); % conversion from raw indices to data indices
                 full_current = abs(sigdata.get(inds,2)*1000); % current in pA, complete data set
                 full_voltage = abs(sigdata.get(inds,3)); % voltage in mV
                 full_cond = full_current ./ full_voltage;
-                events{j}.start_ind = find(full_cond<0.8*mean_open & round(full_voltage)==events{j}.voltage,1,'first')+inds(1)-1;
+                events{j}.start_ind = find(full_cond<0.8*mean_open & round(full_voltage)==round(events{j}.voltage),1,'first')+inds(1)-1;
                 if isempty(events{j}.start_ind)
                     events{j}.start_ind = initial;
                     display('strange problem with start ind...')
@@ -419,9 +359,10 @@ classdef util
                         firstfile = find(trange(1)<=moltimes,1,'first');
                         lastfile = find(trange(2)<=moltimes,1,'first');
                         whichfilesandtimes = f(firstfile:lastfile,:);
-                        whichfilesandtimes(1,2) = whichfilesandtimes(1,2)+trange(1); % start time in first file of interest
+                        moltimes = [0; moltimes];
+                        whichfilesandtimes(1,2) = whichfilesandtimes(1,2)+trange(1)-moltimes(firstfile); % start time in first file of interest
                         moltimes = [0; cumsum(whichfilesandtimes(:,3)-whichfilesandtimes(:,2))];
-                        whichfilesandtimes(end,3) = whichfilesandtimes(1,2)*(firstfile==lastfile)+diff(trange)-moltimes(lastfile); % end is start plus full mol time minus amt of mol before that file
+                        whichfilesandtimes(end,3) = whichfilesandtimes(1,2)*(firstfile==lastfile)+diff(trange)-moltimes(end-1); % end is start plus full mol time minus amt of mol before that file
                     else
                         display('Invalid time range.  Displaying full molecule.')
                         trange = [0 moltimes(end)];
