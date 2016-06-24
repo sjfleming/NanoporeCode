@@ -215,10 +215,10 @@ classdef molecule < handle & matlab.mixin.SetGet
             l = obj.get_robust_levels(varargin{:});
             errorbar(1:numel(l.level_means),abs(l.level_means),l.level_stds,'o-')
             
-            title(['Squiggle data, ' num2str(obj.voltage) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
+            title(['Squiggle data, ' num2str(round(obj.voltage)) 'mV, ' num2str(obj.temp) '°C'],'FontSize',24)
             xlabel('Level')
             ylabel('Mean current (pA)')
-            xlim([0, numel(obj.level_means)+1])
+            xlim([0, numel(l.level_means)+1])
             annotation('textbox', [0.8 0.87 0 0], 'String', ...
                 [obj.start_file(end-27:end-20) '\_' obj.start_file(end-7:end-4) ...
                 ' [' num2str(round(obj.start_time)) ',' num2str(round(obj.end_time)) '] ' ...
@@ -507,6 +507,7 @@ classdef molecule < handle & matlab.mixin.SetGet
                 return;
             end
             obj.level_alignment = struct(); % clear any previous alignment
+            % get reasonable levels
             [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(obj.predicted_levels, ...
                 obj.predicted_levels_stdev, abs(obj.level_means), diff(obj.level_timing,1,2), 0.18*abs(obj.open_pore_current));
             obj.level_alignment.model_level_assignment = mod_inds;
