@@ -2,7 +2,7 @@ function levels = laszlo_levels(data,p)
 % laszlo_levels(data,p) implements a version of the level-finding algorithm
 % documented in Laszlo et al., "Decoding long nanopore sequencing reads of
 % natural DNA," Nature Biotechnology (2014), Supplementary Note 1.
-% 'data' should be two columns, the first time, the second current
+% 'data' should be two columns, the first is time, the second is current
 % returns a struct 'levels' containing information about each level
 % Stephen Fleming, 10/7/15
 

@@ -151,9 +151,26 @@ classdef PoreView < handle
                 obj.loadFile([PathName FileName]);
             end
             
+            % concatenate an entire file
+            function catFileFcn(~,~)
+                % check if we've loaded a file yet
+                if ~isempty(obj.data)
+                    % if we did, let's use that filename
+                    fn = obj.data(end).filename;
+                else
+                    % were we passed a directory, not file?
+                    fn = fname;
+                end
+                % get a filename from dialog box
+                [FileName,PathName] = uigetfile('*.abf;*.cbf;*.fast5','PoreView',fn);
+                % and load (or attempt to)
+                obj.catFile([PathName FileName]);
+            end
+            
             % make the menu bar
             f = uimenu('Label','File');
             uimenu(f,'Label','Open','Callback',@openFileFcn);
+            uimenu(f,'Label','Concatenate File','Callback',@catFileFcn);
             uimenu(f,'Label','Quit','Callback',@(~,~) close(obj.fig));
             c = uimenu('Label','Cursors');
             uimenu(c,'Label','Bring','Callback',@(~,~) obj.bringCursors());
@@ -189,7 +206,7 @@ classdef PoreView < handle
                     return
                 end
                 % get signal list, if we have one
-                slist = obj.data.getSignalList();
+                slist = obj.data(1).getSignalList();
                 
                 obj.sigmenus = [];
                 % create the menus
@@ -591,6 +608,7 @@ classdef PoreView < handle
             
             % get last bit of filename
             [~,fn,ext] = fileparts(fname);
+            
             % and set title bar
             set(obj.fig,'Name',['PoreView - ' fn ext]);
             
@@ -603,6 +621,52 @@ classdef PoreView < handle
             end
             % then, create right number of panels
             for i=1:obj.data.nsigs
+                obj.addSignalPanel(i+1);
+            end
+            
+            % and reset view
+            obj.setView();
+            
+            % and cursors
+            obj.setCursors(obj.getView());
+            obj.toggleCursors();
+        end
+        
+        function catFile(obj, fname)
+            % obj.CATFILE(filename)
+            %   Concatenates the specified file, and initializes the signal panels
+            
+            % attempt to load data
+            d = SignalData(fname);
+            
+            if d.ndata < 0
+                if (d.ndata == -2)
+                    disp('IV curve found, attempting load...');
+                    plot_iv(fname);
+                end
+                return
+            end
+            
+            % get last bit of filename
+            [~,fn,ext] = fileparts(fname);
+            
+            % and set title bar
+            if isempty(obj.data)
+                set(obj.fig,'Name',['PoreView - ' fn ext]);
+            else
+                currentfigname = get(obj.fig,'Name');
+                set(obj.fig,'Name',[currentfigname ', ' fn ext]);
+            end
+            
+            % set internal data
+            obj.data = [obj.data; d];
+            
+            % first, delete all panels
+            while ~isempty(obj.psigs)
+                obj.removeSignalPanel();
+            end
+            % then, create right number of panels
+            for i=1:obj.data(1).nsigs
                 obj.addSignalPanel(i+1);
             end
             
@@ -1026,16 +1090,16 @@ classdef PoreView < handle
             
             % also, check if we got a range at all or not
             if (nargin < 2)
-                range = [obj.data.tstart obj.data.tend];
+                range = [obj.data(1).tstart sum(arrayfun(@(x) x.tend, obj.data))];
             else
                 range = rng;
             end
             
             % are we too zoomed-out?
             dr = range(2)-range(1);
-            if (dr > obj.data.tend)
-                range = [obj.data.tstart obj.data.tend];
-                dr = obj.data.tend;
+            if (dr > sum(arrayfun(@(x) x.tend, obj.data)))
+                range = [obj.data(1).tstart sum(arrayfun(@(x) x.tend, obj.data))];
+                dr = diff(range);
             end
             % or too zoomed-in?
             if (dr == 0)
@@ -1048,8 +1112,8 @@ classdef PoreView < handle
                 range = range - range(1);
             end
             % or too far to the right?
-            if (range(2) > obj.data.tend)
-                range = [-dr 0] + obj.data.tend;
+            if (range(2) > sum(arrayfun(@(x) x.tend, obj.data)))
+                range = [-dr 0] + sum(arrayfun(@(x) x.tend, obj.data));
             end
             
             % now we can set all the xlims properly
@@ -1057,7 +1121,31 @@ classdef PoreView < handle
             set([obj.psigs.axes],'XLim',range);
             
             % get the data, and whether we're looking at reduced
-            [d, isred] = obj.data.getViewData(range);
+            times = cumsum(arrayfun(@(x) x.tend, obj.data));
+            sd1 = find(range(1)<=times,1,'first'); % find SignalData object which contains range(1)
+            sd2 = find(range(2)<=times,1,'first'); % find SignalData object which contains range(2)
+            times = [0; times]; % times now contains the time passed before start of file i
+            if sd1==sd2
+                [d, isred] = obj.data(sd1).getViewData(range - times(sd1)); % range shifted for that file
+                d(:,1) = d(:,1) + times(sd1); % offset times by previous files
+            else
+                isred = false;
+                % loop through necessary SignalData objects and load data
+                % load first one
+                [d, isred(end+1)] = obj.data(sd1).getViewData([range(1)-times(sd1), obj.data(sd1).tend]); % first SignalData to its end
+                d(:,1) = d(:,1) + times(sd1); % offset times by previous files
+                i = sd1+1;
+                while i<sd2
+                    [dat, isred(end+1)] = obj.data(i).getViewData([0, obj.data(i).tend]);
+                    dat(:,1) = dat(:,1) + times(i); % offset times by previous files
+                    d = cat(1, d, dat); % full intermediate SignalDatas
+                    i = i+1;
+                end
+                [dat, isred(end+1)] = obj.data(sd2).getViewData([0, range(2)-times(sd2)]);
+                dat(:,1) = dat(:,1) + times(sd2); % offset times by previous files
+                d = cat(1, d, dat); % last SignalData to end of selection
+                isred = any(isred);
+            end
             % set the axes color maps to be lighter if using reduced
             CO = get(obj.fig, 'DefaultAxesColorOrder');
             % normal CO is dark

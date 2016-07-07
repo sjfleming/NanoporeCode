@@ -54,19 +54,24 @@ function pv = pv_launch(s)
             switch strs{1}
                 case 'lp'
                     filtname = sprintf('Low-pass (%d Hz)', param);
-                    fsigs = pv.data.addVirtualSignal(@(d) filt_lp(d,4,param),filtname);
+                    fsigs = arrayfun(@(x) x.addVirtualSignal(@(d) filt_lp(d,4,param),filtname), pv.data, 'UniformOutput', false);
+                    fsigs = fsigs{1};
                 case 'lpb'
                     filtname = sprintf('Low-pass Bessel (%d Hz)', param);
-                    fsigs = pv.data.addVirtualSignal(@(d) filt_lpb(d,4,param),filtname);
+                    fsigs = arrayfun(@(x) x.addVirtualSignal(@(d) filt_lpb(d,4,param),filtname), pv.data, 'UniformOutput', false);
+                    fsigs = fsigs{1};
                 case 'hp'
                     filtname = sprintf('High-pass (%d Hz)', param);
-                    fsigs = pv.data.addVirtualSignal(@(d) filt_hp(d,4,param),filtname);
+                    fsigs = arrayfun(@(x) x.addVirtualSignal(@(d) filt_hp(d,4,param),filtname), pv.data, 'UniformOutput', false);
+                    fsigs = fsigs{1};
                 case 'med'
                     filtname = sprintf('Median (%d pts)', param);
-                    fsigs = pv.data.addVirtualSignal(@(d) filt_med(d,param),filtname);
+                    fsigs = arrayfun(@(x) x.addVirtualSignal(@(d) filt_med(d,param),filtname), pv.data, 'UniformOutput', false);
+                    fsigs = fsigs{1};
                 case 'band'
                     filtname = sprintf('Band-pass (%d Hz)', params);
-                    fsigs = pv.data.addVirtualSignal(@(d) filt_band(d,4,params),filtname);
+                    fsigs = arrayfun(@(x) x.addVirtualSignal(@(d) filt_band(d,4,params),filtname), pv.data, 'UniformOutput', false);
+                    fsigs = fsigs{1};
                 otherwise
                     return
             end            
@@ -75,7 +80,7 @@ function pv = pv_launch(s)
             % uh trust me on this one
             for i=1:numel(pv.psigs)
                 s = pv.psigs(i).sigs;
-                s(s<=pv.data.nsigs+1) = s(s<=pv.data.nsigs+1) + fsigs(1) - 2;
+                s(s<=pv.data(1).nsigs+1) = s(s<=pv.data(1).nsigs+1) + fsigs(1) - 2;
                 pv.psigs(i).sigs = s;
             end
             

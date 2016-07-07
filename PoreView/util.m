@@ -380,14 +380,19 @@ classdef util
             % loads current, voltage, and time data for a molecule object
             
             trange = [];
-            % check for minmax and pointwise filter setting
-            if strcmp(method,'minmax') || strcmp(method,'pointwise')
-                filter = varargin{1};
-                if numel(varargin)==2
+            % check for filter setting
+            if numel(varargin)==2
+                if numel(varargin{2})==2
+                    filter = varargin{1};
                     trange = varargin{2};
+                elseif numel(varargin{1})==2
+                    filter = varargin{2};
+                    trange = varargin{1};
+                else
+                    filter = varargin{1};
                 end
             elseif numel(varargin)==1
-                trange = varargin{1};
+                filter = varargin{1};
             end
             
             % determine which files are involved, and how much of each
@@ -427,12 +432,20 @@ classdef util
                         filtname = sprintf('4-pole Low-pass Bessel (%d Hz)', filter);
                         fsigs = sigdata.addVirtualSignal(@(d) filt_lpb(d,4,filter),filtname);
                         data = cat(1, data, util.downsample_minmax(sigdata, fsigs(1), filesandtimes(i,2:3), pts*(filesandtimes(i,3)-filesandtimes(i,2))/t)');
-                    otherwise
-                        data = cat(1, data, util.downsample_median(sigdata, channel, filesandtimes(i,2:3), pts*(filesandtimes(i,3)-filesandtimes(i,2))/t)');
+                    case 'median' % takes three times longer than pointwise
+                        filtname = sprintf('4-pole Low-pass Bessel (%d Hz)', filter);
+                        fsigs = sigdata.addVirtualSignal(@(d) filt_lpb(d,4,filter),filtname);
+                        data = cat(1, data, util.downsample_median(sigdata, fsigs(1), filesandtimes(i,2:3), pts*(filesandtimes(i,3)-filesandtimes(i,2))/t)');
+                    case 'none' % no downsampling, just grab data
+                        d = sigdata.getByTime(filesandtimes(i,2:3));
+                        data = cat(1, data, d(:,2));
                 end
                 
             end
             
+            if size(data,2)>size(data,1)
+                data = data';
+            end
             d = [linspace(0, t, numel(data))', data*1000];
             
         end
@@ -459,6 +472,29 @@ classdef util
             
         end
         
+        function d = doLoadMoleculeViewDataQuick(mol, varargin)
+            % loads current, voltage, and time data for a molecule object
+            
+            filesandtimes = util.getMoleculeFilesAndTimes(mol, varargin{:});
+            
+            % grab data from each file
+            t = sum(filesandtimes(:,3)-filesandtimes(:,2)); % total molecule time
+            data = [];
+            raw = [];
+            for i = 1:size(filesandtimes,1)
+                file = mol.start_file;
+                file(end-7:end-4) = sprintf('%04d',filesandtimes(i,1));
+                sigdata = SignalData(file);
+
+                % raw
+                d = sigdata.getViewData([filesandtimes(i,2), filesandtimes(i,3)]);
+                raw = cat(1, raw, d(:,2));
+            end
+            
+            d = [linspace(0, t, numel(raw))', raw*1000];
+            
+        end
+        
         function d = downsample_median(sigdata, channel, trange, pts)
             %DOWNSAMPLE_MEDIAN does a median downsampling, returning ABOUT 'pts' points
             start = max(0,ceil(trange(1)/sigdata.si)); % original index
@@ -478,14 +514,14 @@ classdef util
                     fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
                     d = [d, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@median)'];
                     clear fulldata
-                    fprintf('\b\b\b\b%2d%%\n',floor(100*i/chunks));
+                    fprintf('\b\b\b\b\b%3d%%\n',floor(100*i/chunks));
                 end
             end
             if mod(pts,numpts)~=0
                 fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
                 d = [d, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@median)'];
             end
-            fprintf('\b\b\b\b\b\b');
+            fprintf('\b\b\b\b\b');
         end
         
         function d = downsample_pointwise(sigdata, channel, trange, pts)
@@ -507,7 +543,7 @@ classdef util
                     fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
                     d = [d, downsample(fulldata',rep)];
                     clear fulldata
-                    fprintf('\b\b\b\b%2d%%\n',floor(100*i/chunks));
+                    fprintf('\b\b\b\b\b%3d%%\n',floor(100*i/chunks));
                 end
             end
             if mod(pts,numpts)~=0
@@ -515,7 +551,7 @@ classdef util
                 d = [d, downsample(fulldata',rep)];
             end
             d = medfilt1(d,10);
-            fprintf('\b\b\b\b\b\b');
+            fprintf('\b\b\b\b\b');
         end
         
         function d = downsample_minmax(sigdata, channel, trange, pts)
@@ -546,14 +582,14 @@ classdef util
             end
             chunks = floor((ending-start)/numpts); % number of full chunks
             % max
-            display('    ');
+            fprintf('  0%%\n');
             if chunks ~= 0
                 for i = 1:chunks % do chunks of numpts points
                     fulldata = sigdata.get(start+(i-1)*numpts:start+i*numpts-1,channel); % get chunk
                     d1 = [d1, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@max)'];
                     d2 = [d2, accumarray(1+floor((1:numel(fulldata))/rep)',fulldata',[],@min)'];
                     clear fulldata
-                    fprintf('\b\b\b\b%2d%%\n',floor(100*i/chunks));
+                    fprintf('\b\b\b\b\b%3d%%\n',floor(100*i/chunks));
                 end
             end
             if mod(pts,numpts)~=0
@@ -563,7 +599,7 @@ classdef util
             end
             % put them together
             d = reshape([d1; d2],[1, numel(d1)+numel(d2)]);
-            fprintf('\b\b\b\b\b\b');
+            fprintf('\b\b\b\b\b');
         end
         
     end

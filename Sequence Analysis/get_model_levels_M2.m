@@ -49,11 +49,11 @@ function [pA, pA_std, scale, offset] = get_model_levels_M2(seq, measured_levels)
     
     xx = 0:400;
     [y1,x] = hist(pA,0:5:400);
-    y1 = min(y1,3);
     y1 = y1/sum(y1);
+    y1 = min(y1,0.03);
     [y2,~] = hist(measured_levels,x);
-    y2 = min(y2,3);
     y2 = y2/sum(y2);
+    y2 = min(y2,0.03);
     y1 = interp1(x,y1,0:400);
     y2 = interp1(x,y2,0:400);
     
@@ -62,7 +62,7 @@ function [pA, pA_std, scale, offset] = get_model_levels_M2(seq, measured_levels)
         value = sum((y2-yy1).^2);
     end
     
-    params = fminsearch(@(p) fun(p(1),p(2),y1,y2), [range(measured_levels)/range(pA), min(measured_levels)-min(pA)]);
+    params = fminsearch(@(p) fun(p(1),p(2),y1,y2), [range(measured_levels)/range(pA), min(measured_levels)-min(pA)*range(measured_levels)/range(pA)]);
     scale = params(1);
     offset = params(2);
     

@@ -47,7 +47,7 @@ function [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(model_prediction, mod
     E_model = normpdf(Mmat,Nmat,0.5+stds);
     %E_model = lorentzianpdf(Mmat,Nmat,stds/2).^10;
     % use exponential constant for prob of being random noise
-    E_noise = exppdf(repmat(dts',[M,1]),0.001);%1+0*E_model;
+    E_noise = exppdf(repmat(dts',[M,1]),0.0001);%1+0*E_model;
     %E_noise = exppdf(repmat(dts',[M,1]),0.001).*E_model;
     %E_noise = exppdf(repmat(dts',[M,1]),median(dts)/log(2)/200);
     % and add dboff pA for deep blockages
