@@ -1,4 +1,4 @@
-function levels = find_levels_ks(mol, filter, sample, p)
+function levels = find_levels_ks(mol, filter, sample, p, tr)
 % find_levels_ks(data,p) implements a recursive level-finding algorithm
 % based on Kolmogorov-Smirnov testing.
 % p-value should be 0.07, determined empirically.
@@ -63,10 +63,11 @@ f = util.getMoleculeFilesAndTimes(mol);
 totaltime = sum(f(:,3)-f(:,2));
 numpts = sample*totaltime; % total # pts needed, sampled at 5kHz
 chunks = ceil(numpts / 2^22); % number of max 2^22 point data chunks necessary
-times = linspace(0, totaltime, chunks+1)';
-times(1:end-1,2) = times(2:end,1);
-times = times(1:end-1,:); % row matrix of chunks of time to grab
-% times = [55.8, 58];
+% times = linspace(0, totaltime, chunks+1)';
+% times(1:end-1,2) = times(2:end,1);
+% times = times(1:end-1,:); % row matrix of chunks of time to grab
+% % times = [55.8, 58];
+times = tr;
 
 % for each chunk of data
 for i = 1:size(times,1)

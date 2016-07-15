@@ -26,6 +26,8 @@ classdef PoreView < handle
     %       filename, or a directory where your files are stored.
     %   loadFile(fname) - Loads a file, if it can find it. If IV curve is
     %       selected, forwards to plot_iv. Creates default signal panels.
+    %   catFile(fname) - Loads a file, if it can find it, and concatenates
+    %       in with existing data file(s). Creates default signal panels.
     %
     %   setKeyboardCallback(fun) - Sets the keyboard callback function for
     %       user code. fun should take one argument, a struct, containing

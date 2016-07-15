@@ -332,6 +332,34 @@ classdef util
             
         end
         
+        function r = doFindRegions(sigdata, voltage, conductance, minduration)
+            % find all the regions in a data file satisfying certain values
+            % of voltage and conductance
+            data = sigdata.getViewData([0,sigdata.tend]); % load whole file's downsampled data
+            isVoltageOK = and(data(:,3)<voltage+1,data(:,3)>voltage-1);
+            isConductanceOK = and(data(:,2)*1000./data(:,3)<conductance+0.1,data(:,2)*1000./data(:,3)>max(0,conductance-0.1));
+            logic = and(isVoltageOK,isConductanceOK);
+            % eliminate small islands and blips
+            smoothing = 10;
+            logic = conv(double(logic),ones(smoothing,1)); % ten in a row needed to change status
+            logic = (logic>0);
+            dlogic = diff([0; logic; 0]);
+            startIndex = find(dlogic > 0);
+            endIndex = find(dlogic < 0) - 1;
+            dt = data(2,1)-data(1,1);
+            duration = (endIndex-startIndex+1) * dt * 1000; % in ms
+            rr(:,1) = startIndex(duration>minduration);
+            rr(:,2) = endIndex(duration>minduration);
+            r = nan(size(rr));
+            % refine timings based on real signal
+            for i = 1:size(rr,1)
+                % beginning is voltage
+                r(i,1) = sigdata.findPrev(@(d) d(:,3)>voltage+1, (rr(i,1)+smoothing+2)*dt/sigdata.si);
+                % end is conductance
+                r(i,2) = sigdata.findNext(@(d) d(:,2)*1000./d(:,3)>conductance+0.1, (rr(i,2)-smoothing-5)*dt/sigdata.si);
+            end
+        end
+        
         function f = getMoleculeFilesAndTimes(mol, varargin)
             
             % determine which files are involved, and how much of each
@@ -358,6 +386,9 @@ classdef util
                     if numel(trange)==2 && (trange(1)<trange(2)) && diff(trange)<=moltimes(end) % valid input trange
                         firstfile = find(trange(1)<=moltimes,1,'first');
                         lastfile = find(trange(2)<=moltimes,1,'first');
+                        if isempty(lastfile)
+                            lastfile = firstfile;
+                        end
                         whichfilesandtimes = f(firstfile:lastfile,:);
                         moltimes = [0; moltimes];
                         whichfilesandtimes(1,2) = whichfilesandtimes(1,2)+trange(1)-moltimes(firstfile); % start time in first file of interest
@@ -392,7 +423,11 @@ classdef util
                     filter = varargin{1};
                 end
             elseif numel(varargin)==1
-                filter = varargin{1};
+                if numel(varargin{1})==2
+                    filter = varargin{1};
+                elseif numel(varargin{1})==2;
+                    trange = varargin{1};
+                end
             end
             
             % determine which files are involved, and how much of each
