@@ -623,135 +623,135 @@ classdef molecule < handle & matlab.mixin.SetGet
             % eliminates levels it thinks are noise
             % but all without actually aligning to a model set of levels
             
-            % use Kolmogorov-Smirnov to combine stays
-            % empirically determined level is the KS parameter < 0.07
-            % means the level is the same
-            
+%             % use Kolmogorov-Smirnov to combine stays
+%             % empirically determined level is the KS parameter < 0.07
+%             % means the level is the same
+%             
             % handle inputs
             in = obj.parseOptionalInputs(varargin{:});
             p_s = in.pstay;
             p_n = in.pnoise;
-            
-            % grab the levels
-            levs.m = obj.level_means;
-            levs.s = obj.level_stds;
-            levs.t = obj.level_timing;
-            
-            % note the obvious noise levels
-            noise = obj.level_stds>8 | abs(obj.level_means)<abs(obj.open_pore_current)*0.08;
-            
-            % initial setting of first level
-            if ~noise(1)
-                goodlevs.m(1) = levs.m(1);
-                goodlevs.s(1) = levs.s(1);
-                goodlevs.t(1,:) = levs.t(1,:);
-            else
-                goodlevs.m(1) = levs.m(2);
-                goodlevs.s(1) = levs.s(2);
-                goodlevs.t(1,1) = levs.t(1,1);
-                goodlevs.t(1,2) = levs.t(2,2);
-            end
-            
-            % go through levels
-            for i = 2:numel(levs.m)
-                
-                % check if the level is noise
-                if noise(i)
-                    % ignore it and keep the stats unchanged
-                    goodlevs.t(end,2) = levs.t(i,2);
-                else
-                    % check for a possible stay by looking at means and std
-                    if abs(levs.m(i)-goodlevs.m(end)) < sqrt(goodlevs.s(end)^2+levs.s(i)^2)
-                        % check if the level is a stay using KS test
-                        window = [goodlevs.t(end,1), levs.t(i,2)];
-                        % display(['loading ' num2str(diff(window)) ' sec'])
-                        tic;
-                        data = util.doLoadMoleculeData(obj, diff(window)*5000, 'none', 2000, window); % 2 kHz filter, minmax
-                        toc;
-                        ind = round(diff(goodlevs.t(end,:))/diff(window)*size(data,1));
-                        lastlev = randsample(data(ind:end,2),min(1000,size(data,1)-ind));
-                        thislev = randsample(data(1:ind,2),min(1000,ind));
-                        [~,~,k] = kstest2(lastlev,thislev);
-                        %display(num2str(k))
-                        if k < 0.2%0.07
-                            % this is the same level
-                            goodlevs.m(end) = (levs.m(i)*diff(levs.t(i,:))+goodlevs.m(end)*diff(goodlevs.t(end,:)))/(diff(window));
-                            goodlevs.s(end) = (levs.s(i)*diff(levs.t(i,:))+goodlevs.s(end)*diff(goodlevs.t(end,:)))/(diff(window));
-                            goodlevs.t(end,2) = levs.t(i,2); % update end time for combined level
-                            % levdata = util.doLoadMoleculeData(obj, 100, 'pointwise', 2000, goodlevs.t(end,:)); % 100pt pointwise downsample
-                            % goodlevs.m(end) = nanmean(levdata(:,2)); % update mean
-                            % goodlevs.s(end) = nanstd(levdata(:,2)); % update standard deviation
-                            
-                        else
-                            % this is a new level
-                            goodlevs.m(end+1) = levs.m(i);
-                            goodlevs.s(end+1) = levs.s(i);
-                            goodlevs.t(end+1,:) = levs.t(i,:);
-                        end
-                    else
-                        % this is a new level
-                        goodlevs.m(end+1) = levs.m(i);
-                        goodlevs.s(end+1) = levs.s(i);
-                        goodlevs.t(end+1,:) = levs.t(i,:);
-                    end
-                end
-                
-            end
-            
-            clear levs
-            levs.level_means = goodlevs.m'; % replace initial molecule levels with these new ones
-            levs.level_stds = goodlevs.s';
-            levs.level_timing = goodlevs.t;
-            
-%             lev = abs(obj.level_means);
-%             stdv = abs(obj.level_stds);
-%             timing = obj.level_timing;
-%             dur = obj.level_timing(:,2)-obj.level_timing(:,1);
-%             % remove levels with huge standard deviation and deep blocks
-%             lev = lev(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08);
-%             stdv = stdv(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08);
-%             timing = timing(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08,:);
-%             dur = dur(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08);
-%             tau = 1e-3;
-%             levs.level_means(1) = lev(1);
-%             levs.level_stds(1) = stdv(1);
-%             levs.level_timing(1,:) = obj.level_timing(1,:);
 %             
-%             for i = 2:numel(lev)
-%                 % probability this is a stay
-%                 stdev = levs.level_stds(end);
-%                 div = 0.00005;
-%                 p_stay = mean([ normpdf(lev(i),lev(i-1)+div,stdev/sqrt(timing(i)/(100*tau))), normpdf(lev(i),lev(i-1)-div,stdev/sqrt(timing(i)/(100*tau))) ]) * 2*div ... % prob of distribution overlap
-%                     * 2^(-max(0,abs(stdev-stdv(i))-0.1)/(0.1*min(stdv(i),stdev))); % factor to make stays unlikely for different standard deviations
-%                 % probability this is noise
-%                 if i<numel(lev)
-%                     p_noise = mean([ exppdf(dur(i)+div,tau), exppdf(dur(i)-div,tau) ]) * 2*div ... % short enough
-%                          * (1 - p_stay) ... % it's not the same level
-%                          * mean([ normpdf(lev(i+1),lev(i-1)+div,stdev), normpdf(lev(i+1),lev(i-1)-div,stdev) ]) * 2*div; % it goes back to the same level
-%                 else
-%                     p_noise = 0;
-%                 end
-%                 % do stuff
-%                 %line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',2,'Color','r');
-%                 %line(obj.level_timing(i,:)',(abs(obj.level_means(i))*[1,1])','LineWidth',2,'Color','c');
-%                 %display(['p_noise = ' num2str(log10(p_noise)) ', p_stay = ' num2str(log10(p_stay))])
-%                 %pause();
-%                 if log10(p_noise) > p_n
-%                     levs.level_timing(end,2) = timing(i,2); % update end of level
-%                 elseif log10(p_stay) > p_s
-%                     levs.level_means(end) = ( levs.level_means(end)*diff(levs.level_timing(end,:)) + lev(i)*dur(i) ) ...
-%                         / (diff(levs.level_timing(end,:))+dur(i)); % mean over the whole level
-%                     levs.level_stds(end) = ( levs.level_stds(end)*diff(levs.level_timing(end,:)) + stdv(i)*dur(i) ) ...
-%                         / (diff(levs.level_timing(end,:))+dur(i)); % std over the whole level
-%                     levs.level_timing(end,2) = timing(i,2); % update end of level
-%                 else
-%                     levs.level_means(end+1,1) = lev(i);
-%                     levs.level_stds(end+1,1) = stdv(i);
-%                     levs.level_timing(end+1,:) = timing(i,:);
-%                 end
-%                 p1(i) = p_stay;
-%                 p2(i) = p_noise;
+%             % grab the levels
+%             levs.m = obj.level_means;
+%             levs.s = obj.level_stds;
+%             levs.t = obj.level_timing;
+%             
+%             % note the obvious noise levels
+%             noise = obj.level_stds>8 | abs(obj.level_means)<abs(obj.open_pore_current)*0.08;
+%             
+%             % initial setting of first level
+%             if ~noise(1)
+%                 goodlevs.m(1) = levs.m(1);
+%                 goodlevs.s(1) = levs.s(1);
+%                 goodlevs.t(1,:) = levs.t(1,:);
+%             else
+%                 goodlevs.m(1) = levs.m(2);
+%                 goodlevs.s(1) = levs.s(2);
+%                 goodlevs.t(1,1) = levs.t(1,1);
+%                 goodlevs.t(1,2) = levs.t(2,2);
 %             end
+%             
+%             % go through levels
+%             for i = 2:numel(levs.m)
+%                 
+%                 % check if the level is noise
+%                 if noise(i)
+%                     % ignore it and keep the stats unchanged
+%                     goodlevs.t(end,2) = levs.t(i,2);
+%                 else
+%                     % check for a possible stay by looking at means and std
+%                     if abs(levs.m(i)-goodlevs.m(end)) < sqrt(goodlevs.s(end)^2+levs.s(i)^2)
+%                         % check if the level is a stay using KS test
+%                         window = [goodlevs.t(end,1), levs.t(i,2)];
+%                         % display(['loading ' num2str(diff(window)) ' sec'])
+%                         tic;
+%                         data = util.doLoadMoleculeData(obj, diff(window)*5000, 'none', 2000, window); % 2 kHz filter, minmax
+%                         toc;
+%                         ind = round(diff(goodlevs.t(end,:))/diff(window)*size(data,1));
+%                         lastlev = randsample(data(ind:end,2),min(1000,size(data,1)-ind));
+%                         thislev = randsample(data(1:ind,2),min(1000,ind));
+%                         [~,~,k] = kstest2(lastlev,thislev);
+%                         %display(num2str(k))
+%                         if k < 0.2%0.07
+%                             % this is the same level
+%                             goodlevs.m(end) = (levs.m(i)*diff(levs.t(i,:))+goodlevs.m(end)*diff(goodlevs.t(end,:)))/(diff(window));
+%                             goodlevs.s(end) = (levs.s(i)*diff(levs.t(i,:))+goodlevs.s(end)*diff(goodlevs.t(end,:)))/(diff(window));
+%                             goodlevs.t(end,2) = levs.t(i,2); % update end time for combined level
+%                             % levdata = util.doLoadMoleculeData(obj, 100, 'pointwise', 2000, goodlevs.t(end,:)); % 100pt pointwise downsample
+%                             % goodlevs.m(end) = nanmean(levdata(:,2)); % update mean
+%                             % goodlevs.s(end) = nanstd(levdata(:,2)); % update standard deviation
+%                             
+%                         else
+%                             % this is a new level
+%                             goodlevs.m(end+1) = levs.m(i);
+%                             goodlevs.s(end+1) = levs.s(i);
+%                             goodlevs.t(end+1,:) = levs.t(i,:);
+%                         end
+%                     else
+%                         % this is a new level
+%                         goodlevs.m(end+1) = levs.m(i);
+%                         goodlevs.s(end+1) = levs.s(i);
+%                         goodlevs.t(end+1,:) = levs.t(i,:);
+%                     end
+%                 end
+%                 
+%             end
+%             
+%             clear levs
+%             levs.level_means = goodlevs.m'; % replace initial molecule levels with these new ones
+%             levs.level_stds = goodlevs.s';
+%             levs.level_timing = goodlevs.t;
+            
+            lev = abs(obj.level_means);
+            stdv = abs(obj.level_stds);
+            timing = obj.level_timing;
+            dur = obj.level_timing(:,2)-obj.level_timing(:,1);
+            % remove levels with huge standard deviation and deep blocks
+            lev = lev(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08);
+            stdv = stdv(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08);
+            timing = timing(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08,:);
+            dur = dur(obj.level_stds<10 & abs(obj.level_means)>abs(obj.open_pore_current)*0.08);
+            tau = 1e-3;
+            levs.level_means(1) = lev(1);
+            levs.level_stds(1) = stdv(1);
+            levs.level_timing(1,:) = obj.level_timing(1,:);
+            
+            for i = 2:numel(lev)
+                % probability this is a stay
+                stdev = levs.level_stds(end);
+                div = 0.00005;
+                p_stay = mean([ normpdf(lev(i),lev(i-1)+div,stdev/sqrt(timing(i)/(100*tau))), normpdf(lev(i),lev(i-1)-div,stdev/sqrt(timing(i)/(100*tau))) ]) * 2*div ... % prob of distribution overlap
+                    * 2^(-max(0,abs(stdev-stdv(i))-0.1)/(0.1*min(stdv(i),stdev))); % factor to make stays unlikely for different standard deviations
+                % probability this is noise
+                if i<numel(lev)
+                    p_noise = mean([ exppdf(dur(i)+div,tau), exppdf(dur(i)-div,tau) ]) * 2*div ... % short enough
+                         * (1 - p_stay) ... % it's not the same level
+                         * mean([ normpdf(lev(i+1),lev(i-1)+div,stdev), normpdf(lev(i+1),lev(i-1)-div,stdev) ]) * 2*div; % it goes back to the same level
+                else
+                    p_noise = 0;
+                end
+                % do stuff
+                %line(levs.level_timing',(abs(levs.level_means)*[1,1])','LineWidth',2,'Color','r');
+                %line(obj.level_timing(i,:)',(abs(obj.level_means(i))*[1,1])','LineWidth',2,'Color','c');
+                %display(['p_noise = ' num2str(log10(p_noise)) ', p_stay = ' num2str(log10(p_stay))])
+                %pause();
+                if log10(p_noise) > p_n
+                    levs.level_timing(end,2) = timing(i,2); % update end of level
+                elseif log10(p_stay) > p_s
+                    levs.level_means(end) = ( levs.level_means(end)*diff(levs.level_timing(end,:)) + lev(i)*dur(i) ) ...
+                        / (diff(levs.level_timing(end,:))+dur(i)); % mean over the whole level
+                    levs.level_stds(end) = ( levs.level_stds(end)*diff(levs.level_timing(end,:)) + stdv(i)*dur(i) ) ...
+                        / (diff(levs.level_timing(end,:))+dur(i)); % std over the whole level
+                    levs.level_timing(end,2) = timing(i,2); % update end of level
+                else
+                    levs.level_means(end+1,1) = lev(i);
+                    levs.level_stds(end+1,1) = stdv(i);
+                    levs.level_timing(end+1,:) = timing(i,:);
+                end
+                p1(i) = p_stay;
+                p2(i) = p_noise;
+            end
         end
         
         function n = get_alignment_stats(obj, model_levels_of_interest)

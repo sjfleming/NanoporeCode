@@ -1,4 +1,4 @@
-function levs = dtw_enhanced_level_align(mol1, mol2)
+function levs = dtw_mol_level_align(mol1, mol2)
 % dtw_enhanced_level_align(mol1, mol2)
 % is a dynamic-time-warping level aligner.
 % mol1 is a molecule object, as is mol2

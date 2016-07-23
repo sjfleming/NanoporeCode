@@ -335,9 +335,9 @@ classdef util
         function r = doFindRegions(sigdata, voltage, conductance, minduration)
             % find all the regions in a data file satisfying certain values
             % of voltage and conductance
-            data = sigdata.getViewData([0,sigdata.tend]); % load whole file's downsampled data
+            data = sigdata.getViewData([0,min(1740,sigdata.tend)]); % load whole file's downsampled data
             isVoltageOK = and(data(:,3)<voltage+1,data(:,3)>voltage-1);
-            isConductanceOK = and(data(:,2)*1000./data(:,3)<conductance+0.1,data(:,2)*1000./data(:,3)>max(0,conductance-0.1));
+            isConductanceOK = and(data(:,2)*1000./data(:,3)<conductance, data(:,2)*1000./data(:,3)>0);
             logic = and(isVoltageOK,isConductanceOK);
             % eliminate small islands and blips
             smoothing = 10;
@@ -348,16 +348,27 @@ classdef util
             endIndex = find(dlogic < 0) - 1;
             dt = data(2,1)-data(1,1);
             duration = (endIndex-startIndex+1) * dt * 1000; % in ms
-            rr(:,1) = startIndex(duration>minduration);
-            rr(:,2) = endIndex(duration>minduration);
-            r = nan(size(rr));
-            % refine timings based on real signal
-            for i = 1:size(rr,1)
-                % beginning is voltage
-                r(i,1) = sigdata.findPrev(@(d) d(:,3)>voltage+1, (rr(i,1)+smoothing+2)*dt/sigdata.si);
-                % end is conductance
-                r(i,2) = sigdata.findNext(@(d) d(:,2)*1000./d(:,3)>conductance+0.1, (rr(i,2)-smoothing-5)*dt/sigdata.si);
+            if sum(duration>minduration)>0
+                rr(:,1) = startIndex(duration>minduration);
+                rr(:,2) = endIndex(duration>minduration);
+                r = nan(size(rr));
+                % refine timings based on real signal
+                for i = 1:size(rr,1)
+                    % beginning is voltage
+                    r(i,1) = sigdata.findPrev(@(d) d(:,3)>voltage+1 | d(:,3)<voltage-1, min((rr(i,1)+smoothing+5),rr(i,2))*dt/sigdata.si);
+                    %if r(i,1)*sigdata.si/dt>rr(i,2) % we found something later on
+                    %    r(i,1) = nan;
+                    %else
+                        % end is conductance
+                        %r(i,2) = sigdata.findNext(@(d) d(:,2)*1000./d(:,3)>conductance+0.1, max((rr(i,2)-smoothing-10),rr(i,1))*dt/sigdata.si);
+                        r(i,2) = sigdata.findNext(@(d) d(:,2)*1000./d(:,3)>conductance+0.1, r(i,1));
+                    %end
+                end
+            else
+                r = [];
+                return;
             end
+            r = r(and(~any(isnan(r),2),(r(:,2)-r(:,1))*sigdata.si>=minduration/1000),:);
         end
         
         function f = getMoleculeFilesAndTimes(mol, varargin)
