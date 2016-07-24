@@ -1,4 +1,4 @@
-function [pA, pA_std] = get_model_levels_oxford(seq, measured_levels, open_pore, voltage, temp)
+function [pA, pA_std, std_mean] = get_model_levels_oxford(seq, measured_levels, open_pore, voltage, temp)
 % get_model_levels_oxford(seq, measured_levels) returns current levels for
 % sequence 'seq' that are predicted by Oxford Nanopore Technologies, Inc.
 % and scaled to mesh with the empirical CDF of the levels passed in,
@@ -15,9 +15,11 @@ function [pA, pA_std] = get_model_levels_oxford(seq, measured_levels, open_pore,
     load('models.mat')
     model = 1;
     pA = nan(size(states));
+    std_mean = ones(size(states));
     % real parts
     pA(imag(states)==0) = model_data{model}.level_mean(states(imag(states)==0));
     pA_std(imag(states)==0) = model_data{model}.level_stdv(states(imag(states)==0));
+    std_mean(imag(states)==0) = model_data{model}.sd_mean(states(imag(states)==0));
     
     % for now, input the levels exactly from measured data (2016_01_21_0009 at 1185sec has all these levels)
     if sum(imag(states)~=0)>0 % if there are imaginary numbers, we have abasics at those spots

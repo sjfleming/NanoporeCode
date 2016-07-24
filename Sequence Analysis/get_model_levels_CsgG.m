@@ -1,4 +1,4 @@
-function [pA, pA_std] = get_model_levels_CsgG(seq, measured_levels)
+function [pA, pA_std, std_mean] = get_model_levels_CsgG(seq, measured_levels)
 % get_model_levels_CsgG(seq, measured_levels) returns current levels for
 % sequence 'seq' that are predicted by Oxford Nanopore Technologies, Inc.
 % for their CsgG pore
@@ -14,10 +14,12 @@ function [pA, pA_std] = get_model_levels_CsgG(seq, measured_levels)
     % get the current from Oxford's models
     d = load('CsgG_model.mat');
     pA = nan(size(states));
+    std_mean = ones(size(states));
     % real parts
     states_real = states(imag(states)==0);
     pA(imag(states)==0) = d.CsgG_model.level_mean(states_real);
     pA_std(imag(states)==0) = d.CsgG_model.level_stdv(states_real);
+    std_mean(imag(states)==0) = d.CsgG_model.sd_mean(states_real);
     
     % find levels not contained in the model
     inds = find( d.CsgG_model.weight(states_real) < 2 ); % states with weight less than 2 seem to be garbage levels
