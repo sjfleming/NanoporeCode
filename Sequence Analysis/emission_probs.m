@@ -23,8 +23,7 @@ function obs_prob = emission_probs(measurement, measured_current_range, state, p
     
     % the normal level that should be seen: use a Gaussian distribution
     p_normal = 1 - p_noise - p_deep;
-    pdf = pdf + p_normal * normpdf(xx, state.level_mean, ...
-        sqrt(state.level_stdv^2 + state.stdv_mean^2));
+    pdf = pdf + p_normal * normpdf(xx, state.level_mean, state.stdv_mean); % just the std of the mean
     
     % deep block is about 25% of the conductance of the normal level
     % use a wide Gaussian with a stdv of 10%
