@@ -76,9 +76,30 @@ function out = viterbi_assignment(observations, states)
         
     end
     
+    % figure out which states are deep and which are noise
+    % since the emission probability subsumes deep blocks and noise in this
+    % model, we need to go back and see if each level was normal, deep
+    % block, or noise
+    state_type = cell(1,numel(observations));
+    for i = 1:numel(z)
+        reg = emission_probs(observations(i), I_range, states(z(i)), 0, 0);
+        noi = emission_probs(observations(i), I_range, states(z(i)), 0.5, 0);
+        dee = emission_probs(observations(i), I_range, states(z(i)), 0, 0.5);
+        if and(reg>noi, reg>dee)
+            state_type{i} = 'normal';
+        elseif and(noi>reg, noi>dee)
+            state_type{i} = 'noise';
+        elseif and(dee>reg, dee>noi)
+            state_type{i} = 'deep';
+        else
+            state_type{i} = 'undetermined';
+        end
+    end
+    
     % package the output
     out.state_indices = z;
     out.state_sequence = arrayfun(@(x) states(x), z);
+    out.state_type = state_type;
     out.log_prob_matrix = T;
     out.observations = observations;
     
