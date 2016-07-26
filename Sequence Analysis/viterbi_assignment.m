@@ -2,17 +2,13 @@ function out = viterbi_assignment(observations, states)
 % viterbi_assignment(observations, states)
 % assigns a sequence of observations to a given path through the possible
 % state space in a hidden Markov model
-% observations is a column vector struct of observed current levels
+% observations is a vector struct of observed current levels
 % observations struct contains 'level_mean' and 'level_stdv' fields
-% states is a column vector struct of model current levels
+% states is a vector struct of model current levels
 % states struct contains 'level_mean', 'level_stdv', and 'stdv_mean' fields
 
 % Stephen Fleming
 % 7/24/16
-
-    % state space S, numbered
-    % (all possible underlying states in the hidden Markov model)
-    S = (1:numel(states))'; % states, NO deep block states, NO noise state
     
     % transition matrix A, probabilities
     % (probability of going from one state to another)
