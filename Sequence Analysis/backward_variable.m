@@ -21,17 +21,24 @@ function beta = backward_variable(observations, states, A, emission)
     % beta rows are states
     beta = zeros(numel(states),numel(observations));
     
+    % pre-compute all values for speed
+    logEm = zeros(numel(observations),numel(states));
+    for i = 1:numel(states)
+        for j = 1:numel(observations)
+            logEm(j,i) = log10(emission(observations(j),states(i)));
+        end
+    end
+    logA = log10(A);
+    
     % initialization
     beta(:,numel(observations)) = zeros(numel(states),1); % since log10(1)=0
     
     % induction
     for t = (numel(observations)-1):-1:1 % step through observations, backward
         
-        em = log10(arrayfun(@(x) emission(observations(t+1),x), states)'); % emission prob of next observation for each state
-        
         for i = 1:numel(states) % for each state
             
-            beta(i,t) = log10(sum( 10.^(beta(:,t+1) + log10(A(i,:)') + em) )); % log space
+            beta(i,t) = log10(sum( 10.^(beta(:,t+1) + logA(i,:)' + logEm(t+1,:)') )); % log space
             
         end
         

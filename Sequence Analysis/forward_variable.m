@@ -22,6 +22,15 @@ function alpha = forward_variable(observations, states, init, A, emission)
     % alpha rows are states
     alpha = zeros(numel(states),numel(observations));
     
+    % pre-compute all values for speed
+    logEm = zeros(numel(observations),numel(states));
+    for i = 1:numel(states)
+        for j = 1:numel(observations)
+            logEm(j,i) = log10(emission(observations(j),states(i)));
+        end
+    end
+    logA = log10(A);
+    
     % initialization
     alpha(:,1) = log10( init .* arrayfun(@(x) emission(observations(1), x), states) );
     
@@ -30,7 +39,7 @@ function alpha = forward_variable(observations, states, init, A, emission)
         
         for j = 1:numel(states) % for each state
             
-            alpha(j,t+1) = log10(sum( 10.^(alpha(:,t) + log10(A(:,j))) )) + log10(emission(observations(t+1), states(j))); % log space
+            alpha(j,t+1) = log10(sum( 10.^(alpha(:,t) + logA(:,j)) )) + logEm(t+1,j); % log space
             
         end
         

@@ -18,6 +18,7 @@ function out = viterbi_assignment(observations, states)
     p_skip = (1-p_stay)/12; % total probability of skipping, any number of steps
     p_forward = 10*(1-p_stay)/12; % total probability of taking one forward step, what we expect to happen
     A = transition_matrix(numel(states), p_back, p_stay, p_forward, p_skip);
+    logA = log10(A);
     
     % emission probability function, 'emission'
     % not a matrix because we don't have discrete observation states
@@ -26,6 +27,13 @@ function out = viterbi_assignment(observations, states)
     p_noise = max(0.01, (numel(observations)-numel(states)-p_stay*numel(observations)) / numel(observations)); % a priori probability of a meaningless level in the data
     I_range = [min(arrayfun(@(x) x.level_mean, observations)), max(arrayfun(@(x) x.level_mean, observations))];
     emission = @(obs,state) emission_probs(obs, I_range, state, p_noise, p_deep);
+    % pre-compute all values for speed
+    logEm = zeros(numel(observations),numel(states));
+    for i = 1:numel(states)
+        for j = 1:numel(observations)
+            logEm(j,i) = log10(emission(observations(j),states(i)));
+        end
+    end
     
     % initial state vector init, probabilities
     % (probabilities of starting in each state)
@@ -51,7 +59,7 @@ function out = viterbi_assignment(observations, states)
             
             % all possible previous states times transition to this state
             % times emission for this state
-            [m, ind] = max( T(:,j-1,1) + log10(A(:,i)) + log10(emission(observations(j),states(i))) ); % sum log probabilities
+            [m, ind] = max( T(:,j-1,1) + logA(:,i) + logEm(j,i) ); % sum log probabilities
             T(i,j,1) = m; % the probability of the maximally probable path to here
             T(i,j,2) = ind; % row index
             T(i,j,3) = j-1; % column index, always the previous column...
