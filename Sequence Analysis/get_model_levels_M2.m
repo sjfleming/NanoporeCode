@@ -1,4 +1,4 @@
-function [pA, pA_std, scale, offset] = get_model_levels_M2(seq, measured_levels)
+function [pA, pA_std, std_mean, scale, offset] = get_model_levels_M2(seq, measured_levels)
 % get_model_levels_M2(seq, measured_levels) returns current levels for
 % sequence 'seq' that are predicted by M2-MspA measurements by Laszlo et al
 % and scaled to mesh with the empirical CDF of the levels passed in,
@@ -15,10 +15,12 @@ function [pA, pA_std, scale, offset] = get_model_levels_M2(seq, measured_levels)
     % get the current levels from my own M2 model
     d = load('M2_model.mat');
     pA = nan(size(states));
+    std_mean = ones(size(states));
     
     % real parts are the parts without any abasics
     pA(imag(states)==0) = d.M2_model.level_mean(states(imag(states)==0)); % convert into something like pA
     pA_std(imag(states)==0) = d.M2_model.level_stdv(states(imag(states)==0));
+    std_mean(imag(states)==0) = d.M2_model.sd_mean(states(imag(states)==0));
     
     % imaginary parts are the abasic parts (we have to search the model)
     [~,iminds] = find(imag(states)~=0);
