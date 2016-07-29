@@ -26,14 +26,11 @@ function out = viterbi_assignment(observations, states)
     p_deep = max(0.001, sum(arrayfun(@(x) x.level_mean, observations) < 0.8*min(arrayfun(@(x) x.level_mean, states))) / numel(observations)); % a priori probability of observing a deep block
     p_noise = max(0.01, (numel(observations)-numel(states)-p_stay*numel(observations)) / numel(observations)); % a priori probability of a meaningless level in the data
     I_range = [min(arrayfun(@(x) x.level_mean, observations)), max(arrayfun(@(x) x.level_mean, observations))];
+    p_scale = 1;
+    p_offset = 0;
     emission = @(obs,state) emission_probs(obs, I_range, state, p_noise, p_deep);
     % pre-compute all values for speed
-    logEm = zeros(numel(observations),numel(states));
-    for i = 1:numel(states)
-        for j = 1:numel(observations)
-            logEm(j,i) = log10(emission(observations(j),states(i)));
-        end
-    end
+    logEm = log10(cell2mat(arrayfun(@(y) arrayfun(@(x) emission(x,y), observations), states, 'uniformoutput', false)')');
     
     % initial state vector init, probabilities
     % (probabilities of starting in each state)

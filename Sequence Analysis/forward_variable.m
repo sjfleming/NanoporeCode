@@ -1,4 +1,4 @@
-function alpha = forward_variable(observations, states, init, A, emission)
+function alpha = forward_variable(observations, states, logInit, logA, logEm)
 % forward_variable(observations, states, init, A, emission)
 % calculates the value of the forward variable
 % for a given hidden Markov model
@@ -9,9 +9,9 @@ function alpha = forward_variable(observations, states, init, A, emission)
 % states is a vector struct of model current levels
 % states struct contains 'level_mean', 'level_stdv', and 'stdv_mean' fields
 
-% init is the initial probabilities (NOT log prob)
-% A is the transition matrix probabilities (NOT log prob)
-% emission is a function handle and emission(observation, state)
+% logInit is the log10 initial probabilities
+% logA is the log10 transition matrix probabilities
+% logEm is the log10 precomputed emission matrix
 % returns the probability of observing 'observation' from the model state
 % 'state' (NOT log prob)
 
@@ -22,17 +22,8 @@ function alpha = forward_variable(observations, states, init, A, emission)
     % alpha rows are states
     alpha = zeros(numel(states),numel(observations));
     
-    % pre-compute all values for speed
-    logEm = zeros(numel(observations),numel(states));
-    for i = 1:numel(states)
-        for j = 1:numel(observations)
-            logEm(j,i) = log10(emission(observations(j),states(i)));
-        end
-    end
-    logA = log10(A);
-    
     % initialization
-    alpha(:,1) = log10( init .* arrayfun(@(x) emission(observations(1), x), states) );
+    alpha(:,1) = logInit + logEm(1,:);
     
     % induction
     for t = 1:(numel(observations)-1) % step through observations

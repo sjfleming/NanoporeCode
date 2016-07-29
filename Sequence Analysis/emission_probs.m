@@ -12,6 +12,8 @@ function obs_prob = emission_probs(measurement, measured_current_range, state, p
 %       'stdv_mean' standard deviation of level's mean current
 % 'p_noise' the a priori probability of observing a junk noise value
 % 'p_deep' the a priori probability of observing a deep block level
+% 'p_scale' the scale factor for the states
+% 'p_offset' the offset for the states (applied after scale)
 % Stephen Fleming
 % 7/24/16
     

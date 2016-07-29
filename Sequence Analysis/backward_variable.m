@@ -1,4 +1,4 @@
-function beta = backward_variable(observations, states, A, emission)
+function beta = backward_variable(observations, states, logA, logEm)
 % backward_variable(observations, states, init, A, emission)
 % calculates the value of the forward variable
 % for a given hidden Markov model
@@ -9,8 +9,8 @@ function beta = backward_variable(observations, states, A, emission)
 % states is a vector struct of model current levels
 % states struct contains 'level_mean', 'level_stdv', and 'stdv_mean' fields
 
-% A is the transition matrix probabilities (NOT log prob)
-% emission is a function handle and emission(observation, state)
+% logA is the log10 transition matrix probabilities
+% logEm is the log10 precomputed emission matrix
 % returns the probability of observing 'observation' from the model state
 % 'state' (NOT log prob)
 
@@ -20,15 +20,6 @@ function beta = backward_variable(observations, states, A, emission)
     % beta columns are observations
     % beta rows are states
     beta = zeros(numel(states),numel(observations));
-    
-    % pre-compute all values for speed
-    logEm = zeros(numel(observations),numel(states));
-    for i = 1:numel(states)
-        for j = 1:numel(observations)
-            logEm(j,i) = log10(emission(observations(j),states(i)));
-        end
-    end
-    logA = log10(A);
     
     % initialization
     beta(:,numel(observations)) = zeros(numel(states),1); % since log10(1)=0
