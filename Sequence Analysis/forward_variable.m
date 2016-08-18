@@ -16,7 +16,7 @@ function alpha = forward_variable(observations, states, logInit, logA, logEm)
 % 'state' (NOT log prob)
 
 % Stephen Fleming
-% 7/26/16
+% 7/28/16
     
     % alpha columns are observations
     % alpha rows are states

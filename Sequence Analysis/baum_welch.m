@@ -21,8 +21,8 @@ function out = baum_welch(observations, states, params)
         p_forward = 10*(1-p_stay)/12; % total probability of taking one forward step, what we expect to happen
         p_deep = max(0.001, sum(arrayfun(@(x) x.level_mean, observations) < 0.8*min(arrayfun(@(x) x.level_mean, states))) / numel(observations)); % a priori probability of observing a deep block
         p_noise = max(0.01, (numel(observations)-numel(states)-p_stay*numel(observations)) / numel(observations)); % a priori probability of a meaningless level in the data
-        p_scale = 1;
-        p_offset = 0;
+        scale = 1;
+        offset = 0;
     else
         try
             p_stay = params.p_stay;
@@ -31,8 +31,8 @@ function out = baum_welch(observations, states, params)
             p_forward = params.p_forward;
             p_noise = params.p_noise;
             p_deep = params.p_deep;
-            p_scale = params.p_scale;
-            p_offset = params.p_offset;
+            scale = params.scale;
+            offset = params.offset;
         catch ex
             display('Parameters incorrectly assigned.')
         end
@@ -63,7 +63,12 @@ function out = baum_welch(observations, states, params)
     iterate = true;
     tolerance = 1e-3;
     
-    p = p_stay;
+    ps = p_stay;
+    pf = p_forward;
+    pb = p_back;
+    psk = p_skip;
+    scaleoffsetflag = true;
+    offset = 10;
     
     figure(1)
     clf
@@ -72,45 +77,60 @@ function out = baum_welch(observations, states, params)
     
     while iterate
         
-        % calculate the forward variable
-        alpha = forward_variable(observations, states, logInit, logA, logEm);
-        
-        % calculate the backward variable
-        beta = backward_variable(observations, states, logA, logEm);
+        % calculate the scaled forward and backward variables
+        [alpha_bar, beta_bar, c] = forward_backward_variables_scaled(observations, states, logInit, logA, logEm, 1);
         
         % update parameters!
-        params = update_step(alpha,beta,logA,logEm,states,observations);
+        params = update_step(alpha_bar, beta_bar, logA, logEm, states, observations, scaleoffsetflag);
         
         % for now don't bother changing p_noise or p_deep
         % should i let these vary for individual levels???  might lose control
         
         % updates
-        for i = 1:numel(states)
-            states(i).level_mean = states(i).level_mean * params.p_scale + params.p_offset;
-            states(i).level_stdv = states(i).level_stdv * params.p_scale;
-            states(i).stdv_mean = states(i).stdv_mean * params.p_scale;
+        if scaleoffsetflag
+            for i = 1:numel(states)
+                states(i).level_mean = states(i).level_mean * params.scale + params.offset;
+                states(i).level_stdv = states(i).level_stdv * params.scale;
+                states(i).stdv_mean = states(i).stdv_mean * params.scale;
+            end
         end
         
         logEm = log10(cell2mat(arrayfun(@(y) arrayfun(@(x) emission(x,y), observations), states, 'uniformoutput', false)')');
         logA = log10(transition_matrix(numel(states), params.p_back, params.p_stay, params.p_forward, params.p_skip));
         
-        p = [p, params.p_stay];
-        %display(p)
+        ps = [ps, params.p_stay];
+        pf = [pf, params.p_forward];
+        pb = [pb, params.p_back];
+        psk = [psk, params.p_skip];
+        if scaleoffsetflag
+            offset = [offset, params.offset];
+            if abs(offset(end)-offset(end-1)) < 0.1 && numel(offset)>5
+                scaleoffsetflag = false;
+            end
+        end
+        display(params)
         
-        out = viterbi_assignment(observations, states);
+        vit = viterbi_assignment(observations, states);
         figure(1)
-        plot(arrayfun(@(x) x.level_mean, out.state_sequence))
+        plot(arrayfun(@(x) x.level_mean, vit.state_sequence))
         drawnow;
         figure(2)
-        image(10.^logA,'cdatamapping','scaled')
+%         image(10.^logA,'cdatamapping','scaled')
+        plot(ps,'c')
+        hold on
+        plot(pf,'m')
+        plot(pb,'b')
+        plot(psk,'k')
+        ylim([0 1])
         drawnow;
         
-        if p(end)-p(end-1) < tolerance || numel(p)>200
+        if numel(ps)>20%p(end)-p(end-1) < tolerance || 
             iterate = false;
         end
         
     end
     
-    out = p;
+    out = vit;
+    out.params = params;
     
 end
