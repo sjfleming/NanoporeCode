@@ -8,7 +8,8 @@ function out = MCMC_HMM_parameter_estimation(observations, states, param_start, 
 % states struct contains 'level_mean', 'level_stdv', and 'stdv_mean' fields
 % param_start struct contains 'p_stay', 'p_back', 'p_skip', 'p_forward',
 % 'p_deep', and 'p_noise', or can be an empty set [].
-% proposalmethod is a string, either 'classic', 'baumwelch', or 'traceback'
+% proposalmethod is a string, either 'classic', 'baumwelch', 'traceback',
+% or 'classicbaumwelch'
 % T is a step-size (simulated annealing temp).  Note that we sample from
 % the true posterior since our step size depends on T but the acceptance
 % probability is for T=1.
@@ -77,17 +78,31 @@ function out = MCMC_HMM_parameter_estimation(observations, states, param_start, 
     r = 0;
     
     % proposals for variables
-    function new_params = classicProposal(p, stdv, iter)
+    function new_params = classicProposal(p, stdv, iter, var)
         % generate a classical proposal by using a normal distribution
         % around one of the current parameters and renormalizing others
         np(1) = p.p_forward;
         np(2) = p.p_back;
         np(3) = p.p_stay;
         np(4) = p.p_skip;
-        whichvar = mod(iter,4)+1; % integer 1 through 4
         
-        % random step
+        % one variable random step
+%         whichvar = mod(iter,4)+1; % integer 1 through 4
+        whichvar = var;
         np(whichvar) = np(whichvar) + randn(1)*stdv;
+        
+        % all variables random step
+%         np = np + randn(1,4)*stdv;
+        
+        % two variable tradeoff
+%         whichvars = randsample(1:4,2); % two non-repeated integers 1 through 4
+%         step = randn(1)*stdv;
+%         np(whichvars(1)) = np(whichvars(1)) + step;
+%         np(whichvars(2)) = np(whichvars(2)) - step;
+        
+        % random change in random number of variables
+%         whichvars = randsample(1:4,randi(4)); % random number of non-repeated integers 1 through 4
+%         np(whichvars) = np(whichvars) + randn(1,numel(whichvars))*stdv;
         
         % make sure it's within bounds
         if any(np<=0)
@@ -103,7 +118,7 @@ function out = MCMC_HMM_parameter_estimation(observations, states, param_start, 
         new_params.p_skip = np(4);
     end
     
-    function new_params = baumwelchProposal(p, iter)
+    function new_params = baumwelchProposal(p, iter, var)
         % generate a classical proposal by using a normal distribution
         % around one of the current parameters and renormalizing others
         np(1) = p.p_forward;
@@ -112,20 +127,21 @@ function out = MCMC_HMM_parameter_estimation(observations, states, param_start, 
         np(4) = p.p_skip;
 %         whichvar = mod(iter,4)+1; % integer 1 through 4
         
-        % baum welch update for that variable, still use temperature...
+        temp_logA = log10(transition_matrix(numel(states), p.p_back, p.p_stay, p.p_forward, p.p_skip));
+        % baum welch update for that variable
         ra = randi(numel(observations),1); % use a random observation to generate this sample
-        [alpha_bar, beta_bar, ~, ~, ~] = forward_backward_variables_scaled(observations{ra}, states, logInit, logA, logEm{ra}, 1);
-        bwparam = update_step(alpha_bar, beta_bar, logA, logEm{ra}, states, observations{ra}, 0);
-%         switch whichvar
-%             case 1
+        [alpha_bar, beta_bar, ~, ~, ~] = forward_backward_variables_scaled(observations{ra}, states, logInit, temp_logA, logEm{ra}, 1);
+        bwparam = update_step(alpha_bar, beta_bar, temp_logA, logEm{ra}, states, observations{ra}, 0);
+        switch var
+            case 1
                 np(1) = bwparam.p_forward;
-%             case 2
+            case 2
                 np(2) = bwparam.p_back;
-%             case 3
+            case 3
                 np(3) = bwparam.p_stay;
-%             case 4
+            case 4
                 np(4) = bwparam.p_skip;
-%         end
+        end
         
         % make sure it's within bounds
         np = np / sum(np);
@@ -143,7 +159,7 @@ function out = MCMC_HMM_parameter_estimation(observations, states, param_start, 
         np(2) = p.p_back;
         np(3) = p.p_stay;
         np(4) = p.p_skip;
-        whichvar = mod(iter,4)+1; % integer 1 through 4
+        %whichvar = mod(iter,4)+1; % integer 1 through 4
         
         % probabilistic traceback: get a new sample path
         % initialization
@@ -157,16 +173,16 @@ function out = MCMC_HMM_parameter_estimation(observations, states, param_start, 
             state_inds(t-1) = numel(states) - (find(rand(1)>=[flipud(cumsum(10.^state_probs)); 0],1,'first') - 1) + 1;
         end
         
-        switch whichvar
-            case 1
+        %switch whichvar
+            %case 1
                 np(1) = max(1e-5,sum(diff(state_inds)==1)) /(numel(state_inds)-1);
-            case 2
+            %case 2
                 np(2) = max(1e-5,sum(diff(state_inds)<0))  /(numel(state_inds)-1);
-            case 3
+            %case 3
                 np(3) = max(1e-5,sum(diff(state_inds)==0)) /(numel(state_inds)-1);
-            case 4
+            %case 4
                 np(4) = max(1e-5,sum(diff(state_inds)>1))  /(numel(state_inds)-1);
-        end
+        %end
         
         np = np / sum(np);
         new_params.p_forward = np(1);
@@ -181,17 +197,21 @@ function out = MCMC_HMM_parameter_estimation(observations, states, param_start, 
         % get a proposal sample
         switch proposalmethod
             case 'classic'
-                new_params = classicProposal(p, 0.15, iter);
+                new_params = classicProposal(p, 0.06, iter);
             case 'traceback'
                 new_params = tracebackProposal(p, T, iter);
             case 'baumwelch'
                 new_params = baumwelchProposal(p, iter);
+            case 'classicbaumwelch'
+                va = mod(iter,4)+1;
+                new_params = classicProposal(p, 0.3, iter, va);
+                new_params = baumwelchProposal(new_params, iter, va);
         end
         
         % calculate probability of observations given the new parameters
         % just for a select few
         new_logA = log10(transition_matrix(numel(states), new_params.p_back, new_params.p_stay, new_params.p_forward, new_params.p_skip));
-        testers = randsample(1:numel(observations),5); % pick 5 to look at
+        testers = randsample(1:numel(observations),3); % pick 3 to look at
         % for the current sample
         for k = testers
             [nlf, nlb, ~, nla, nlc] = forward_backward_variables_scaled(observations{k}, states, logInit, logA, logEm{k}, T);
