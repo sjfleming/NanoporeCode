@@ -1,4 +1,4 @@
-function out = viterbi_assignment(observations, states)
+function out = viterbi_assignment(observations, states, p, init)
 % viterbi_assignment(observations, states)
 % assigns a sequence of observations to a given path through the possible
 % state space in a hidden Markov model
@@ -13,10 +13,17 @@ function out = viterbi_assignment(observations, states)
     % transition matrix A, probabilities
     % (probability of going from one state to another)
     % initial guesses for transitions, out of the blue
-    p_stay = max(0.1,(numel(observations)-numel(states))/numel(observations)); % a fudge for the fact that sometimes level-finding overfinds
-    p_back = (1-p_stay)/12; % total probability of going back, any number of steps
-    p_skip = (1-p_stay)/12; % total probability of skipping, any number of steps
-    p_forward = 10*(1-p_stay)/12; % total probability of taking one forward step, what we expect to happen
+    if isempty(p)
+        p_stay = max(0.1,(numel(observations)-numel(states))/numel(observations)); % a fudge for the fact that sometimes level-finding overfinds
+        p_back = (1-p_stay)/12; % total probability of going back, any number of steps
+        p_skip = (1-p_stay)/12; % total probability of skipping, any number of steps
+        p_forward = 10*(1-p_stay)/12; % total probability of taking one forward step, what we expect to happen
+    else
+        p_stay = p.p_stay;
+        p_back = p.p_back;
+        p_skip = p.p_skip;
+        p_forward = p.p_forward;
+    end
     A = transition_matrix(numel(states), p_back, p_stay, p_forward, p_skip);
     logA = log10(A);
     
@@ -25,6 +32,7 @@ function out = viterbi_assignment(observations, states)
     % (probability of an observation given the underlying state)
     p_deep = max(0.001, sum(arrayfun(@(x) x.level_mean, observations) < 0.8*min(arrayfun(@(x) x.level_mean, states))) / numel(observations)); % a priori probability of observing a deep block
     p_noise = max(0.01, (numel(observations)-numel(states)-p_stay*numel(observations)) / numel(observations)); % a priori probability of a meaningless level in the data
+
     I_range = [min(arrayfun(@(x) x.level_mean, observations)), max(arrayfun(@(x) x.level_mean, observations))];
     p_scale = 1;
     p_offset = 0;
@@ -34,9 +42,11 @@ function out = viterbi_assignment(observations, states)
     
     % initial state vector init, probabilities
     % (probabilities of starting in each state)
-    init = [0.9, 0.05, 0.03, 0.012, 0.005, 0.002, 0.001, 1e-10*ones(1, max(0,numel(states)-7))];
-    if numel(init)>numel(states)
-        init = init(1:numel(states)) / sum(init(1:numel(states))); % concatenate and fix to sum to 1
+    if isempty(init)
+        init = [0.9, 0.05, 0.03, 0.012, 0.005, 0.002, 0.001, 1e-10*ones(1, max(0,numel(states)-7))];
+        if numel(init)>numel(states)
+            init = init(1:numel(states)) / sum(init(1:numel(states))); % concatenate and fix to sum to 1
+        end
     end
     
     % initialize the big matrix T to trace path

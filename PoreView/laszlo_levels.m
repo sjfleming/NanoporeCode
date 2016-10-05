@@ -13,8 +13,6 @@ function levels = laszlo_levels(data,p)
         warning('off','MATLAB:colon:nonIntegerIndex'); % turn off warning since fminbnd uses non-integer indices
         options = optimset('TolX',1);
         [possible_transition_index, min_prob] = fminbnd(@(x) log_prob(x,ind1,ind2), ind1, ind2, options);
-        %probs = log_prob((ind1+1):(ind2-1),ind1,ind2);
-        %[min_prob, possible_transition_index] = min(probs);
         
         if min_prob < p
             % this index is a real transition, save it and recursively look
@@ -36,12 +34,22 @@ function levels = laszlo_levels(data,p)
     % conditioned on the index location of a possible transition
     function probability = log_prob(index,i1,i3)
         
-        % with my own tweak to normalize time
-        factor = 30/(size(data,1)*(data(2,1)-data(1,1)));
-        probability = (index-i1) * log(nanstd(data(i1:index,2))) + ...
-            (i3-index) * log(nanstd(data(index:i3,2))) - ...
-            (i3-i1) * log(nanstd(data(i1:i3,2)));
-        probability = probability*factor;
+%         % with my own tweak to normalize time
+%         factor = 30/(size(data,1)*(data(2,1)-data(1,1)));
+%         probability = (index-i1) * log(nanstd(data(i1:index,2))) + ...
+%             (i3-index) * log(nanstd(data(index:i3,2))) - ...
+%             (i3-i1) * log(nanstd(data(i1:i3,2)));
+%         probability = probability*factor;
+        
+        sig = nanstd(data(i1:i3,2));
+        sig1 = nanstd(data(i1:index,2));
+        sig2 = nanstd(data(index:i3,2));
+        
+        % probability that all of these points are from two Gaussians
+        % versus one Gaussian
+        probability = ((index-i1) * sig1 + ...
+            (i3-index) * sig2 - ...
+            (i3-i1) * sig) / (2*sig^2) - log(sig)/2 - log(2*pi);
         
     end
 

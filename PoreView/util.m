@@ -256,79 +256,56 @@ classdef util
         function doCurrentHistogram(sigdata,tr)
             
             display(['Creating histogram from [' num2str(tr) ']'])
-            if ~exist('fcurrentSig','var')
+            if ~exist('fcondSig','var')
                 filter = 10000; % Hz
                 fcurrentSig = sigdata.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',2); % signal 5
-                fcondSig = sigdata.addVirtualSignal(@(d) repmat(d(:,2)./d(:,3),[1 2]),'Conductance (nS)',[fcurrentSig,2]); % signal 6
+                fcondSig = sigdata.addVirtualSignal(@(d) repmat(abs(d(:,2)*1000./d(:,3)) .* double(abs(d(:,3))>5),[1 2]),'Conductance (nS)',[2,3]);
             end
-            channels = [fcurrentSig,fcondSig];
+            channels = [fcurrentSig(end),fcondSig(end)];
             histogram_pv(sigdata,tr,filter,channels);
             
         end
         
-        function doLevelAnalysis(sigdata,tr,finalFrequency,pvalue)
+        function levels = doLevelAnalysis(sigdata,tr,filter,finalFrequency,pvalue)
             
-            display('Finding discrete levels:')
-            discreteData = find_discrete_levels(sigdata, 2, tr, finalFrequency, pvalue);
+            display('Finding discrete levels')
+            filtname = sprintf('Low-pass Bessel (%d Hz)', filter);
+            fsigs = arrayfun(@(x) x.addVirtualSignal(@(d) filt_lpb(d,4,filter),filtname), sigdata, 'UniformOutput', false);
+            fsigs = fsigs{1};
             
-            h = figure(4);
-            clf
-            plot(discreteData.time,discreteData.current,'Color',[0.8 0.8 0.8])
-            hold on
-            line(discreteData.level_timing',(ones(2,1)*discreteData.level_medians'),'Color','k','LineWidth',1)
-            cmap = colormap('lines');
-            for i = 1:numel(discreteData.level_means)
-                i1 = find(discreteData.time >= discreteData.level_timing(i,1),1,'first');
-                i2 = find(discreteData.time >= discreteData.level_timing(i,2),1,'first');
-                plot(discreteData.time(i1:i2),discreteData.current(i1:i2),'.', ...
-                    'MarkerSize',5,'Color',cmap(mod(i-1,size(cmap,1))+1,:))
-            end
-            ylabel('Current (pA)')
-            xlabel('Time (s)')
-            xlim([discreteData.time(1) discreteData.time(end)])
-            set(h,'Position',[-920 236 700 400]) % size the figure
-            set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
-            set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
-            set(gca,'FontSize',24)
-            
-            assignin('base','discreteData',discreteData); % assign variable to workspace
-            Vdata = sigdata.getViewData([tr(1),(tr(1)+0.001)]);
-            V = round(mean(Vdata(:,3))/5)*5;
-            assignin('base','V',V);
-            name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
-            assignin('base','name',name);
-            assignin('base','tr',tr);
-            figure(4)
-            h = get(gca,'Title');
-            title = get(h,'String');
-            plot_squiggles(discreteData, name, tr, title); % plot the level information
-            %plot_level_duration(discreteData, name, tr, title); % plot step duration distribution
-            file = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' ...
-                sigdata.filename(65:68) sigdata.filename(70:71) sigdata.filename(73:74) '/' sigdata.filename(76:end-4) ...
-                '_discreteData_' num2str(round(tr(1))) '.mat'];
-            
-            % Add pulsing data if we have it
-            if sigdata.nsigs > 2 % we have pulsing channel
-                [pulses, candidates, distances] = pulse_analysis(sigdata, tr, discreteData, [0.005, -0.002]);
-                figure(2)
-                line(repmat(candidates',1,2)',repmat(get(gca,'ylim'),numel(candidates),1)','Color',[0 1 0],'LineStyle','-') % vertical lines
-                annotation('textbox', [0.8 0.85 0 0], 'String', [name ' ' num2str(numel(candidates)) '/' num2str(numel(pulses))], 'FontSize', 20);
-                pulse.times = pulses;
-                pulse.candidates = candidates;
-                pulse.distances = distances;
-                assignin('base','pulse',pulse);
-                answer = input('Save data? (y/n): ','s');
-                if strcmp(answer,'y')
-                    save(file,'discreteData','V','name','tr','pulse')
-                    display(['Saved data as ' file])
+            % chunk data and find levels
+            tchunk = 1e6*sigdata.si;
+            t = tr(1);
+            levels = cell(0);
+            combinecheck = false;
+            while t < tr(2)
+                trange = [t, min(tr(2), t+tchunk)];
+                if combinecheck
+                    % grab a bigger chunk to not artifically cut levels
+                    trange = [levels{end}.start_time, trange(2)];
+                    data = util.downsample_pointwise(sigdata, fsigs(1), trange, round(diff(trange)*finalFrequency)); % downsample
+                    combinecheck = false;
+                else
+                    data = util.downsample_pointwise(sigdata, fsigs(1), trange, round(diff(trange)*finalFrequency)); % downsample
                 end
-            else
-                answer = input('Save data? (y/n): ','s');
-                if strcmp(answer,'y')
-                    save(file,'discreteData','V','name','tr')
-                    display(['Saved data as ' file])
+                data = [linspace(trange(1),trange(2),numel(data))', data'*1000];
+                levs = laszlo_levels(data, pvalue); % find levels
+                levels = [levels; levs(1:end-1)];
+                t = levs{end}.start_time; % start at the end-1 level for overlap, so no artificial chunk divisions exist
+                if isempty(t) || ~(t>tr(1) && t<tr(2))
+                    t = t + tchunk;
+                end
+                if round(levs{end}.end_time*100)/100 >= round(tr(2)*100)/100 - diff(tr)/1000
+                    t = tr(2); % end it
+                    levels = [levels; levs(end)];
+                end
+                if numel(levs)==1
+                    levels = [levels; levs(end)];
+                    t = t + tchunk; % step time forward
+                    combinecheck = true;
                 end
             end
+            display('Done.')
             
         end
         
@@ -604,14 +581,21 @@ classdef util
             %DOWNSAMPLE_MINMAX does a min/max downsampling, returning ABOUT 'pts' points
             
             if strcmp(channel,'view') % only want view data downsampled
-                viewdata = sigdata.getViewData(trange);
-                viewdata = viewdata(:,2);
+                data = sigdata.getViewData(trange);
+                viewdata = data(:,2);
                 rep = max(1, 2*round(numel(viewdata) / pts)); % number of original points per downsampled point
                 d1 = [];
                 d2 = [];
                 d1 = [d1, accumarray(1+floor((1:numel(viewdata))/rep)',viewdata',[],@max)'];
                 d2 = [d2, accumarray(1+floor((1:numel(viewdata))/rep)',viewdata',[],@min)'];
-                d = reshape([d1; d2],[1, numel(d1)+numel(d2)]);
+                dc = reshape([d1; d2],[1, numel(d1)+numel(d2)]);
+                viewdata = data(:,3);
+                d1 = [];
+                d2 = [];
+                d1 = [d1, accumarray(1+floor((1:numel(viewdata))/rep)',viewdata',[],@max)'];
+                d2 = [d2, accumarray(1+floor((1:numel(viewdata))/rep)',viewdata',[],@min)'];
+                dv = reshape([d1; d2],[1, numel(d1)+numel(d2)]);
+                d = [dc; dv];
                 return;
             end
             

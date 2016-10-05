@@ -3,7 +3,7 @@ function [xconductance,hconductance,xcurrent,hcurrent] = histogram_pv(sigdata,tr
 %   [x,y] = histogram(cf.data,trange)
     
     name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' ...
-        sigdata.filename(73:74) '\_' sigdata.filename(76:end-4) ' ' num2str(trange(1),3) '-' num2str(trange(2),3) 's'];
+        sigdata.filename(73:74) '\_' sigdata.filename(76:end-4) ' ' num2str(round(trange(1)*100)/100) '-' num2str(round(trange(2)*100)/100) 's'];
 
     % Signals
     fcurrentSig = channels(1);
@@ -43,12 +43,15 @@ function [xconductance,hconductance,xcurrent,hcurrent] = histogram_pv(sigdata,tr
     
     %% Plot it on a log scale
     figure(5)
-    bar(xconductance,log(hconductance+1))
+%     bar(xconductance,log(hconductance+1))
+    bar(xconductance,hconductance)
     xlabel('Conductance (nS)','FontSize',20)
-    ylabel('Log (# data points +1)','FontSize',20)
+%     ylabel('Log (# data points +1)','FontSize',20)
+    ylabel('# data points')
     title(['Conductance histogram: ' num2str(filter/1000) 'kHz filter, ' num2str(V,3) 'mV'],'FontSize',18)
     annotation('textbox', [0.15 0.87 0 0], 'String', name, 'FontSize', 20);
-    ylim([0 max(log(hconductance+1))+1])
+%     ylim([0 max(log(hconductance+1))+1])
+    ylim([0 max(hconductance)+100])
     xlim([min(0,xconductance(1)) max(0,xconductance(end))])
     set(gca,'FontSize',22)
     set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!

@@ -170,9 +170,14 @@ function pv = pv_launch(s)
             % find discrete levels in data
             % if cursors, do those
             tr = pv.getCursors();
-            finalFrequency = 10000;
-            pValue = -50;
-            util.doLevelAnalysis(pv,tr,finalFrequency,pValue);
+            filter = 1000;
+            sample = 10000;
+            pValue = -10;
+            levels = util.doLevelAnalysis(pv.data, tr, filter, sample, pValue);
+            % plot on poreview
+            plot(pv.psigs(1).axes, cell2mat(cellfun(@(x) [x.start_time, x.end_time], levels, 'uniformoutput', false))', ...
+                 cell2mat(cellfun(@(x) ones(1,2)*x.current_median/1000, levels, 'uniformoutput', false))', 'Color', 'r');
+            assignin('base','levels',levels); % assign variable to workspace
             
         elseif strcmp(e.Character,'m')
             % display the mean

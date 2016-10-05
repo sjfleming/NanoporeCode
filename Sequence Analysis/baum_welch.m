@@ -38,6 +38,13 @@ function out = baum_welch(observations, states, params)
         end
     end
     
+    tempstates = states;
+    for i = 1:numel(states)
+        tempstates(i).level_mean = states(i).level_mean * params.scale + params.offset;
+        tempstates(i).level_stdv = states(i).level_stdv * params.scale;
+        tempstates(i).stdv_mean = states(i).stdv_mean * params.scale;
+    end
+    
     % transition matrix A, probabilities
     % (probability of going from one state to another)
     % initial guesses for transitions, out of the blue
@@ -50,11 +57,13 @@ function out = baum_welch(observations, states, params)
     I_range = [min(arrayfun(@(x) x.level_mean, observations)), max(arrayfun(@(x) x.level_mean, observations))];
     emission = @(obs,state) emission_probs(obs, I_range, state, p_noise, p_deep);
     % pre-compute all values for speed
-    logEm = log10(cell2mat(arrayfun(@(y) arrayfun(@(x) emission(x,y), observations), states, 'uniformoutput', false)')');
+    logEm = log10(cell2mat(arrayfun(@(y) arrayfun(@(x) emission(x,y), observations), tempstates, 'uniformoutput', false)')');
     
     % initial state vector init, probabilities
     % (probabilities of starting in each state)
-    init = [0.9, 0.05, 0.03, 0.012, 0.005, 0.002, 0.001, 1e-10*ones(1, max(0,numel(states)-7))];
+%     init = [0.9, 0.05, 0.03, 0.012, 0.005, 0.002, 0.001, 1e-10*ones(1, max(0,numel(states)-7))];
+    init = [0.999, 0.0009, 0.00009, 0.000009, 0.0000009, 1e-10*ones(1, max(0,numel(states)-5))];
+%     init = [1, zeros(1, max(0,numel(states)-1))];
     if numel(init)>numel(states)
         init = init(1:numel(states)) / sum(init(1:numel(states))); % concatenate and fix to sum to 1
     end
@@ -70,15 +79,19 @@ function out = baum_welch(observations, states, params)
     scaleoffsetflag = true;
     offset = 10;
     
+    figure(2)
+    clf
     figure(1)
     clf
     hold on
     plot(arrayfun(@(x) x.level_mean, observations),'r','LineWidth',5)
+    vit = viterbi_assignment(observations, tempstates, params, init);
+    plot(arrayfun(@(x) x.level_mean, vit.state_sequence))
     
     while iterate
         
         % calculate the scaled forward and backward variables
-        [alpha_bar, beta_bar, c] = forward_backward_variables_scaled(observations, states, logInit, logA, logEm, 1);
+        [alpha_bar, beta_bar, c, ~, ~] = forward_backward_variables_scaled(observations, states, logInit, logA, logEm, 1);
         
         % update parameters!
         params = update_step(alpha_bar, beta_bar, logA, logEm, states, observations, scaleoffsetflag);
@@ -89,13 +102,13 @@ function out = baum_welch(observations, states, params)
         % updates
         if scaleoffsetflag
             for i = 1:numel(states)
-                states(i).level_mean = states(i).level_mean * params.scale + params.offset;
-                states(i).level_stdv = states(i).level_stdv * params.scale;
-                states(i).stdv_mean = states(i).stdv_mean * params.scale;
+                tempstates(i).level_mean = states(i).level_mean * params.scale + params.offset;
+                tempstates(i).level_stdv = states(i).level_stdv * params.scale;
+                tempstates(i).stdv_mean = states(i).stdv_mean * params.scale;
             end
         end
         
-        logEm = log10(cell2mat(arrayfun(@(y) arrayfun(@(x) emission(x,y), observations), states, 'uniformoutput', false)')');
+        logEm = log10(cell2mat(arrayfun(@(y) arrayfun(@(x) emission(x,y), observations), tempstates, 'uniformoutput', false)')');
         logA = log10(transition_matrix(numel(states), params.p_back, params.p_stay, params.p_forward, params.p_skip));
         
         ps = [ps, params.p_stay];
@@ -106,21 +119,24 @@ function out = baum_welch(observations, states, params)
             offset = [offset, params.offset];
             if abs(offset(end)-offset(end-1)) < 0.1 && numel(offset)>5
                 scaleoffsetflag = false;
+                final_offset = params.offset;
+                final_scale = params.scale;
             end
         end
         display(params)
         
-        vit = viterbi_assignment(observations, states);
+        vit = viterbi_assignment(observations, tempstates, params, init);
         figure(1)
         plot(arrayfun(@(x) x.level_mean, vit.state_sequence))
+%         text(1:numel(observations),arrayfun(@(x) x.level_mean, vit.state_sequence),num2cell(vit.state_indices'))
         drawnow;
         figure(2)
 %         image(10.^logA,'cdatamapping','scaled')
-        plot(ps,'c')
+        plot(ps,'k')
         hold on
-        plot(pf,'m')
-        plot(pb,'b')
-        plot(psk,'k')
+        plot(pf,'g')
+        plot(pb,'r')
+        plot(psk,'c')
         ylim([0 1])
         drawnow;
         
@@ -132,5 +148,7 @@ function out = baum_welch(observations, states, params)
     
     out = vit;
     out.params = params;
+    out.params.offset = final_offset;
+    out.params.scale = final_scale;
     
 end

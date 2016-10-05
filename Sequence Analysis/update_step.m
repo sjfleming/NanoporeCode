@@ -64,8 +64,11 @@ function params = update_step(alpha, beta, logA, logEm, states, observations, sc
         options = optimset('Display', 'off');
         f = fmincon(eqn,[1;0],[-1, 0; 0, 1],[0, max(max(abs(data-model)))],[],[],[],[],[],options);
 
-        params.scale = f(1);%mean([1, f(1)]);
-        params.offset = f(2);%/2;
+        params.scale = f(1);
+        params.offset = f(2);
+
+%         params.scale = mean([1, f(1)]);
+%         params.offset = f(2)/2;
 
     end
     

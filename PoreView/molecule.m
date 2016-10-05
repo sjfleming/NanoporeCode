@@ -13,6 +13,7 @@ classdef molecule < handle & matlab.mixin.SetGet
         sequence = [];
         predicted_levels = nan;
         predicted_levels_stdev = nan;
+        predicted_levels_stdev_mean = nan;
         level_means = nan;
         level_medians = nan;
         level_stds = nan;
@@ -71,6 +72,9 @@ classdef molecule < handle & matlab.mixin.SetGet
                 obj.predicted_levels = event.predicted_levels;
             end
             if isfield(event,'predicted_levels_stdev')
+                obj.predicted_levels_stdev = event.predicted_levels_stdev;
+            end
+            if isfield(event,'predicted_levels_stdev_mean')
                 obj.predicted_levels_stdev = event.predicted_levels_stdev;
             end
             if isfield(event,'level_means')

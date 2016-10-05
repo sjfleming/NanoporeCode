@@ -41,4 +41,8 @@ function obs_prob = emission_probs(measurement, measured_current_range, state, p
         obs_prob(i) = sum( pdf .* normpdf(xx, measurement(i).level_mean, measurement(i).level_stdv) * (xx(2)-xx(1)));
     end
     
+    if any(isnan(obs_prob))
+        pause();
+    end
+    
 end
