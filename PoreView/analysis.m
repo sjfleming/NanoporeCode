@@ -118,9 +118,15 @@ classdef analysis < handle
             startsHigh = arrayfun(@(x) nanmax(conductance(x-5:x)) > g_m * in.threshhold, possibleStartInds);
             possibleStartInds = possibleStartInds(startsHigh);
             % one end for each start
+            conductance = [conductance; nan]; % just so it won't try to go past end
             possibleEndInds = arrayfun(@(x) find(or(conductance(x+2:end) > g_m * in.threshhold, isnan(conductance(x+2:end))), 1, 'first'), possibleStartInds) + possibleStartInds + 1;
             % to get rid of the off-by-one errors
             possibleStartInds = possibleStartInds - 1;
+            
+            % trim out ones that are too short
+            too_short = (possibleEndInds-possibleStartInds)*dt < in.minduration;
+            possibleStartInds = possibleStartInds(~too_short);
+            possibleEndInds = possibleEndInds(~too_short);
             
             % exact start and end search
             start_inds = -1*ones(numel(possibleStartInds),1);
@@ -150,9 +156,9 @@ classdef analysis < handle
                 % end should actually be when current starts to return
                 % to open pore
                 ending_bit = obj.sigdata.get(max(start_inds(i),end_inds_thresh-20):max(start_inds(i),end_inds_thresh-5),2)*1000;
-                end_cond = mean(ending_bit);
-                end_cond_std = std(ending_bit);
-                end_inds(i) = obj.sigdata.findPrev(@(x) x(:,2)*1000./x(:,3) < end_cond + 0.2*end_cond_std, end_inds_thresh);
+                end_cond = abs(mean(ending_bit)/V);
+                %end_cond_std = std(ending_bit);
+                end_inds(i) = obj.sigdata.findPrev(@(x) x(:,2)*1000./x(:,3) < mean([end_cond, end_cond, end_cond, g_m * in.threshhold]), end_inds_thresh);
                 % make sure we get some ending, if that technique
                 % didn't work
                 if isempty(end_inds(i))
@@ -161,9 +167,10 @@ classdef analysis < handle
                 end
                 % make sure this doesn't overlap previous event
                 if i>1
-                    if start_inds(i)<end_inds(i-1)
+                    if end_inds(i)<start_inds(i-1)
                         start_inds(i) = NaN;
                         end_inds(i) = NaN;
+                        display('problem identifying exact event end: overlap')
                     end
                 end
             end
@@ -173,6 +180,10 @@ classdef analysis < handle
             % give the indices of the regions as output
             regions = round([start_inds, end_inds]-1); % fix off-by-one from 'find'
             %regions = [possibleStartInds*dt/obj.sigdata.si, possibleEndInds*dt/obj.sigdata.si]+obj.tr(1)/obj.sigdata.si;
+            
+            % get rid of events that are too short
+            too_short = (end_inds-start_inds)*obj.sigdata.si < in.minduration;
+            regions = regions(~too_short,:);
         end
         
         function showEventsInPoreView(obj, pv, r_or_events, how)
@@ -425,6 +436,10 @@ classdef analysis < handle
             ylim([0 1.1])
             xlim([-Inf Inf])
             
+            annotation('textbox', [0.7 0.25 0 0], 'String', ...
+                [events{i}.file(end-27:end-20), '\_', events{i}.file(end-7:end-4)], ...
+                'FontSize', 20);
+            
         end
         
         function events = batch(obj, varargin)
@@ -490,7 +505,7 @@ classdef analysis < handle
             addOptional(p, 'trange', defaultTimeRange, checkTimeRange); % time range of interest
             addOptional(p, 'mincond', 1.4, checkPosNum); % min open pore conductance
             addOptional(p, 'maxcond', 3, checkPosNum); % max open pore conductance
-            addOptional(p, 'minduration', 1e-4, checkPosNum); % min event duration
+            addOptional(p, 'minduration', 1e-6, checkPosNum); % min event duration
             addOptional(p, 'threshhold', 0.90, checkPosNum); % fraction of open pore event threshhold
             addOptional(p, 'voltage', [], checkPosNum); % voltage(s) of interest
             addOptional(p, 'eventstart', 'currentdrop', checkEventStart); % what defines start of event
@@ -593,14 +608,24 @@ classdef analysis < handle
                     vs = a.getAppliedVoltages('trange', trange);
                     events = a.getEvents('trange',trange,'threshhold',0.90,'eventstart','currentdrop','voltage',vs); % do event finding
                 end
+            else
+                if isempty(trange)
+                    events = a.getEvents('threshhold',0.90,'eventstart','currentdrop','voltage',vs); % do event finding
+                else
+                    events = a.getEvents('trange',trange,'threshhold',0.90,'eventstart','currentdrop','voltage',vs); % do event finding
+                end
             end
             
-            try
-                savefile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-4) '_events.mat'];
-                save(savefile,'events'); % save data
-                display(['Saved event data in ' savefile])
-            catch ex
+            if isempty(events)
                 display('No events found')
+            else
+                try
+                    savefile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-4) '_events.mat'];
+                    save(savefile,'events'); % save data
+                    display(['Saved event data in ' savefile])
+                catch ex
+                    display('Trouble saving to specified directory')
+                end
             end
         end
         
