@@ -246,7 +246,7 @@ classdef analysis < handle
                     d = obj.downsample_pointwise(regions(i,:), 1e5);
                 end
                 % pad for the std calculation
-                pad = round(max(0,min(diff(regions(i,:))/2-5,20)));
+                pad = round(max(0,min(diff(regions(i,:))/2-5,40)));
                 % calculate statistics
                 events{i}.current_mean = mean(d(:,2))*1000; % current in pA
                 events{i}.current_median = median(d(:,2))*1000; % current in pA
@@ -292,6 +292,35 @@ classdef analysis < handle
             
         end
         
+        function logic = getLogic(obj, events, varargin)
+            % generate a logical array of size events that says whether
+            % each event satisfies the criteria in varargin
+            % and the conditions in 'eventlogic' optional input field:
+            % eventlogic should be a struct with optional fields that match
+            % the names of fields in events, but which are logic operations
+            % which must all be true for getLogic to be true
+            
+            % input handling
+            in = obj.parseOptionalInputs(varargin{:});
+            
+            logic = cellfun(@(x) (isempty(in.files) || any(strcmp(x.file,in.files))) ... % check matching filename
+                && (isempty(in.voltage) || any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
+            
+            % get any extra conditionals from 'eventlogic' argument
+            if isempty(in.eventlogic)
+                return;
+            end
+            fields = fieldnames(in.eventlogic);
+            for i = 1:numel(fields)
+                % dynamic field name in eventlogic references function
+                % handle which gets passed the argument from events' same
+                % field.  this is done for all events.
+                condition = cellfun(@(x) in.eventlogic.(fields{i})(x.(fields{i})), events);
+                logic = logic & condition; % each time update overall logic
+            end
+            
+        end
+        
         function f = plotEventScatter(obj, events, varargin)
             % necessary input: events cell struct, output of
             % calculateEventStatistics
@@ -302,19 +331,25 @@ classdef analysis < handle
             % input handling
             in = obj.parseOptionalInputs(varargin{:});
             
-            include_logic = cellfun(@(x) (~isempty(in.files) && any(strcmp(x.file,in.files))) ... % check matching filename
-                && (~isempty(in.voltage) && any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
-            events = events(include_logic); % limit to these events
+            % if user used 'eventlogic'
+            logic = obj.getLogic(events, 'eventlogic', in.eventlogic);
+            
+            % if user explicitly entered files and voltages
+            logic2 = cellfun(@(x) (isempty(in.files) || any(strcmp(x.file,in.files))) ... % check matching filename
+                && (isempty(in.voltage) || any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
+            
+            % limit to these events
+            events = events(logic & logic2);
             
             % plot
-            f = in.figure;
+            f = figure(in.figure);
             if in.inverted == true
                 y = cellfun(@(x) 1 - x.fractional_block_mean, events);
             else
                 y = cellfun(@(x) x.fractional_block_mean, events);
             end
             ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
-            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'x','markersize',3,'color',in.color)
+            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'x','markersize',5,'color',in.color)
             hold on
             plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',3,'color',in.color)
             set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
@@ -345,20 +380,26 @@ classdef analysis < handle
             % input handling
             in = obj.parseOptionalInputs(varargin{:});
             
+            % if user used 'eventlogic'
+            logic = obj.getLogic(events, 'eventlogic', in.eventlogic);
+            
+            % if user explicitly entered files and voltages
+            logic2 = cellfun(@(x) (isempty(in.files) || any(strcmp(x.file,in.files))) ... % check matching filename
+                && (isempty(in.voltage) || any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
+            
+            % limit to these events
+            events = events(logic & logic2);
+            
             % plot
             f = figure;
             for i = 1:numel(events)
-                if (~isempty(in.files) && ~any(strcmp(events{i}.file,in.files))) ... % if user specified filenames and this event doesn't match one
-                        || (~isempty(in.voltage) && ~any(round(events{i}.voltage/5)*5 == round(in.voltage))) % or if user specified voltages and this event doesn't match one
-                    continue; % skip the rest of this loop iteration
-                end
                 if in.inverted == true
                     y = 1 - events{i}.fractional_block_mean;
                 else
                     y = events{i}.fractional_block_mean;
                 end
                 if isfield(events{i},'ended_manually') && events{i}.ended_manually
-                    dot = plot(events{i}.duration*1000, y,'ro','markersize',3);
+                    dot = plot(events{i}.duration*1000, y,'rx','markersize',5);
                 else
                     dot = plot(events{i}.duration*1000, y,'ko','markersize',3);
                 end
@@ -374,6 +415,7 @@ classdef analysis < handle
             else
                 ylabel('\DeltaI / I_0');
             end
+            box on
             
         end
         
@@ -388,27 +430,48 @@ classdef analysis < handle
             % input handling
             in = obj.parseOptionalInputs(varargin{:});
             
+            % if user used 'eventlogic'
+            logic = obj.getLogic(events, 'eventlogic', in.eventlogic);
+            
+            % if user explicitly entered files and voltages
+            logic2 = cellfun(@(x) (isempty(in.files) || any(strcmp(x.file,in.files))) ... % check matching filename
+                && (isempty(in.voltage) || any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
+            
+            % limit to these events
+            events = events(logic & logic2);
+            
             % plot
             f = figure(in.figure);
             for i = 1:numel(events)
                 try
-                    if isfield(events{i},'current_range')
-                        rng = events{i}.current_range;
-                    else
-                        pad = min(diff(events{i}.index)/2-1,20);
-                        d = obj.downsample_pointwise(events{i}.index+[pad,-1*pad],1000);
-                        %stdv = std(d(:,2)*1000);
-                        current = d(:,2)*1000;
-                        current = current(current < in.threshold * events{i}.open_pore_current_mean);
-                        rng = range(current);
-                    end
+%                     if isfield(events{i},'current_range')
+%                         rng = events{i}.current_range;
+%                     else
+%                         pad = min(diff(events{i}.index)/2-1,20);
+%                         d = obj.downsample_pointwise(events{i}.index+[pad,-1*pad],1000);
+%                         %stdv = std(d(:,2)*1000);
+%                         current = d(:,2)*1000;
+%                         current = current(current < in.threshold * events{i}.open_pore_current_mean);
+%                         rng = range(current);
+%                     end
+                    rng = events{i}.current_std/events{i}.open_pore_current_mean;
                     if in.inverted == true
                         y = 1 - events{i}.fractional_block_mean;
                     else
                         y = events{i}.fractional_block_mean;
                     end
-                    dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
-                        events{i}.duration*1000, 'o', 'Color', in.color, 'markersize', 3);
+                    if isfield(events{i},'ended_manually')
+                        if events{i}.ended_manually
+                            dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
+                                events{i}.duration*1000, 'x', 'Color', 'r', 'markersize', 5);
+                        else
+                            dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
+                                events{i}.duration*1000, 'o', 'Color', in.color, 'markersize', 3);
+                        end
+                    else
+                        dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
+                            events{i}.duration*1000, 'o', 'Color', in.color, 'markersize', 3);
+                    end
 %                     if rng/events{i}.open_pore_current_mean > 1
 %                         pause();
 %                     end
@@ -428,7 +491,7 @@ classdef analysis < handle
             else
                 xlabel('\DeltaI / I_0');
             end
-            ylabel('I_s_t_d / I_0')
+            ylabel('I_r_a_n_g_e / I_0')
             grid on
             
         end
@@ -541,6 +604,7 @@ classdef analysis < handle
             addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
             addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
             addOptional(p, 'inverted', false, @(x) islogical(x)); % scatter plots: inverted true plots \Delta I / I_0
+            addOptional(p, 'eventlogic', [], @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
             
             % parse
             parse(p,varargin{:});
