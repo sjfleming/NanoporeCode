@@ -6,7 +6,7 @@ classdef util
             
             t = inputdlg('Enter title:','Input');
             display(['Plotting time interval [' num2str(tr) ']'])
-            plot_pretty(pv.data,tr,1000,[5,3],t);
+            plot_pretty(pv.data,tr,100,[5,3],t);
             %plot_pretty(sigdata,tr,'none',[4,3],t);
             %plot_pretty(sigdata,tr,2000,[2,3,6],t);
             
@@ -257,7 +257,7 @@ classdef util
             
             display(['Creating histogram from [' num2str(tr) ']'])
             if ~exist('fcondSig','var')
-                filter = 10000; % Hz
+                filter = 1000; % Hz
                 fcurrentSig = sigdata.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',2); % signal 5
                 fcondSig = sigdata.addVirtualSignal(@(d) repmat(abs(d(:,2)*1000./d(:,3)) .* double(abs(d(:,3))>5),[1 2]),'Conductance (nS)',[2,3]);
             end

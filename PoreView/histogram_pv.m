@@ -59,11 +59,11 @@ function [xconductance,hconductance,xcurrent,hcurrent] = histogram_pv(sigdata,tr
     set(h,'Position',[100 500 800 300]) % size the figure
     
     figure(6)
-    bar(xcurrent,log(hcurrent+1))
+    bar(xcurrent,log10(hcurrent+1))
     xlabel('Current (pA)','FontSize',20)
     ylabel('Log (# data points +1)','FontSize',20)
     title(['Current histogram: ' num2str(filter/1000) 'kHz filter, ' num2str(V,3) 'mV'],'FontSize',18)
-    ylim([0 max(log(hcurrent+1))+1])
+    ylim([0 max(log10(hcurrent+1))+1])
     xlim([min(0,xcurrent(1)) max(0,xcurrent(end))])
     annotation('textbox', [0.15 0.87 0 0], 'String', name, 'FontSize', 20);
     set(gca,'FontSize',22)

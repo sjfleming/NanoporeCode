@@ -47,10 +47,16 @@ classdef analysis < handle
             [~,indMax] = find(hcond>0.05,1,'last');
             [~,indMin] = find(hcond(1:indMax)<0.05,1,'last');
             [~,ind] = max(hcond(indMin:indMax));
-            condfull = current_raw(voltagelogic)./voltage;
-            cond_interest = condfull(condfull>xcond(indMin-5*ind) & condfull<xcond(min(numel(xcond),indMax+5*ind)));
-            cond = mean(cond_interest);
-            cond_std = std(cond_interest);
+            condfull = abs(current_raw(voltagelogic))./voltage;
+            try
+                cond_interest = condfull(condfull>xcond(indMin-5*ind) & condfull<xcond(min(numel(xcond),indMax+5*ind)));
+                cond = mean(cond_interest);
+                cond_std = std(cond_interest);
+            catch ex
+                pv_launch(obj.sigdata.filename);
+                cond = input('Could not identify open pore conductance.  Please enter in nS: ');
+                cond_std = 0.05;
+            end
         end
         
         function voltages = getAppliedVoltages(obj, varargin)
@@ -78,7 +84,7 @@ classdef analysis < handle
         
         function regions = findEventRegions(obj, varargin)
             % find events in data specified by user parameters
-            % optional inputs: trange, voltage, threshhold, eventstart, mincond, maxcond
+            % optional inputs: trange, voltage, threshold, eventstart, mincond, maxcond
             
             % inputs
             in = obj.parseOptionalInputs(varargin{:});
@@ -86,7 +92,7 @@ classdef analysis < handle
             % get the open pore conductance
             [g_m, g_s] = obj.getOpenPoreConductance('mincond', in.mincond, 'maxcond', in.maxcond, 'voltage', in.voltage);
             
-            % coarse event finding using a threshhold
+            % coarse event finding using a threshold
             [voltage, current] = obj.getViewData(in.trange);
             dt = diff(in.trange)/numel(current);
             voltagelogic = obj.findSpecifiedVoltageRegions(in.trange, in.voltage);
@@ -100,26 +106,26 @@ classdef analysis < handle
             V = mode(round(v_with_regions_deleted(v_with_regions_deleted>nanmax(v_with_regions_deleted)/2))); % capture voltage assumed to be most prevalent overall high voltage value
             clear v_with_regions_deleted;
             if strcmp(in.eventstart, 'currentdrop')
-                lowcond = conductance < g_m * in.threshhold; % regions of conductance below threshhold
+                lowcond = abs(conductance) < abs(g_m) * in.threshold; % regions of conductance below threshold
                 dlogic = diff([1; lowcond; 0]);
-                startcondition = @(x) x(:,2)*1000./x(:,3) < g_m * in.threshhold;
-                startcondition_inv = @(x) x(:,2)*1000./x(:,3) > g_m * in.threshhold;
-                endcondition = @(x,evtcond) x(:,2)*1000./x(:,3) < g_m * in.threshhold;
+                startcondition = @(x) abs(x(:,2)*1000./x(:,3)) < abs(g_m) * in.threshold;
+                startcondition_inv = @(x) abs(x(:,2)*1000./x(:,3)) > abs(g_m) * in.threshold;
+                endcondition = @(x,evtcond) abs(x(:,2)*1000./x(:,3)) < abs(g_m) * in.threshold;
             elseif strcmp(in.eventstart, 'voltagedrop')
-                lowvolt = voltage < V * in.threshhold; % regions of voltage below threshhold
+                lowvolt = abs(voltage) < abs(V) * in.threshold; % regions of voltage below threshold
                 dlogic = diff([1; lowvolt; 0]);
-                startcondition = @(x) x(:,3) < V * in.threshhold;
-                startcondition_inv = @(x) x(:,3) > V * in.threshhold;
-                endcondition = @(x,evtcond) x(:,2)*1000./x(:,3) < g_m * in.threshhold;
+                startcondition = @(x) abs(x(:,3)) < abs(V) * in.threshold;
+                startcondition_inv = @(x) abs(x(:,3)) > abs(V) * in.threshold;
+                endcondition = @(x,evtcond) abs(x(:,2)*1000./x(:,3)) < abs(g_m) * in.threshold;
             end
             clear voltage;
             [~,possibleStartInds] = findpeaks(double(dlogic > 0),'minpeakheight',0.5,'minpeakdist',5);
             % check to make sure current starts at open pore level
-            startsHigh = arrayfun(@(x) nanmax(conductance(x-5:x)) > g_m * in.threshhold, possibleStartInds);
+            startsHigh = arrayfun(@(x) nanmax(conductance(x-5:x)) > g_m * in.threshold, possibleStartInds);
             possibleStartInds = possibleStartInds(startsHigh);
             % one end for each start
             conductance = [conductance; nan]; % just so it won't try to go past end
-            possibleEndInds = arrayfun(@(x) find(or(conductance(x+2:end) > g_m * in.threshhold, isnan(conductance(x+2:end))), 1, 'first'), possibleStartInds) + possibleStartInds + 1;
+            possibleEndInds = arrayfun(@(x) find(or(conductance(x+2:end) > g_m * in.threshold, isnan(conductance(x+2:end))), 1, 'first'), possibleStartInds) + possibleStartInds + 1;
             % to get rid of the off-by-one errors
             possibleStartInds = possibleStartInds - 1;
             
@@ -141,15 +147,15 @@ classdef analysis < handle
                 % get mean event conductance
                 evtconductancearray = conductance(possibleStartInds:possibleEndInds);
                 evtconductance = mean( evtconductancearray(evtconductancearray < mean([g_m, min(evtconductancearray)])) );
-                % find end by next cross of threshhold
+                % find end by next cross of threshold
                 if possibleEndInds(i)-possibleStartInds(i) < pad*dt/obj.sigdata.si
                     % end is so close we can search from the start
-                    end_inds_thresh = obj.sigdata.findNext(@(x) or(x(:,2)*1000./x(:,3) > g_m * in.threshhold, x(:,3)<=0), start_inds(i)+pad);
+                    end_inds_thresh = obj.sigdata.findNext(@(x) or(x(:,2)*1000./x(:,3) > g_m * in.threshold, x(:,3)<=0), start_inds(i)+pad);
                     end_inds_thresh = obj.sigdata.findPrev(@(x) or(endcondition(x, evtconductance), x(:,3)<=0), end_inds_thresh+1);
                 else
                     % end is far enough that we should work from our
                     % best guess of the end itself
-                    end_inds_thresh = obj.sigdata.findNext(@(x) or(x(:,2)*1000./x(:,3) > g_m * in.threshhold, x(:,3)<=0), ...
+                    end_inds_thresh = obj.sigdata.findNext(@(x) or(x(:,2)*1000./x(:,3) > g_m * in.threshold, x(:,3)<=0), ...
                         (in.trange(1)/dt + max(possibleEndInds(i)-pad, possibleStartInds(i))) * dt/obj.sigdata.si+1);
                     end_inds_thresh = obj.sigdata.findPrev(@(x) or(endcondition(x, evtconductance), x(:,3)<=0), end_inds_thresh+1);
                 end
@@ -158,7 +164,7 @@ classdef analysis < handle
                 ending_bit = obj.sigdata.get(max(start_inds(i),end_inds_thresh-20):max(start_inds(i),end_inds_thresh-5),2)*1000;
                 end_cond = abs(mean(ending_bit)/V);
                 %end_cond_std = std(ending_bit);
-                end_inds(i) = obj.sigdata.findPrev(@(x) x(:,2)*1000./x(:,3) < mean([end_cond, end_cond, end_cond, g_m * in.threshhold]), end_inds_thresh);
+                end_inds(i) = obj.sigdata.findPrev(@(x) x(:,2)*1000./x(:,3) < mean([end_cond, end_cond, end_cond, g_m * in.threshold]), end_inds_thresh);
                 % make sure we get some ending, if that technique
                 % didn't work
                 if isempty(end_inds(i))
@@ -258,7 +264,7 @@ classdef analysis < handle
                 open_current = open(:,2)*1000; % in pA
                 i2 = find(diff(open_current)>=0,1,'last'); % index of open
                 guessval = open_current(i2);
-                i1 = find(open_current(1:i2)<0.95*guessval,1,'last'); % index of open
+                i1 = find(abs(open_current(1:i2))<0.95*abs(guessval),1,'last'); % index of open
                 if isempty(i1)
                     i1 = 0;
                 end
@@ -266,6 +272,11 @@ classdef analysis < handle
                 events{i}.open_pore_current_std = std(open_current(i1+1:i2-1)); % pA
                 events{i}.open_pore_conductance_mean = mean(open_current(i1+1:i2-1)./open((i1+1):(i2-1),3)); % nS
                 events{i}.fractional_block_mean = events{i}.current_mean / events{i}.open_pore_current_mean;
+                % check whether the event ended manually (voltage decreased at end)
+                d = obj.sigdata.get(regions(i,2) + [1e-4, 1e-3]/obj.sigdata.si); % from 100us after to 1ms after
+                v_after = mean(d(:,3));
+                events{i}.voltage_after_event = v_after; % voltage just after event ends
+                events{i}.ended_manually = round(v_after) < round(events{i}.voltage); % so did we end it by flipping voltage
                 % add file data
                 events{i}.file = obj.sigdata.filename;
             end
@@ -274,7 +285,7 @@ classdef analysis < handle
         
         function events = getEvents(obj, varargin)
             % get events struct and return it using other functions
-            % optional inputs: trange, voltage, threshhold, eventstart, mincond, maxcond
+            % optional inputs: trange, voltage, threshold, eventstart, mincond, maxcond
             
             r = obj.findEventRegions(varargin{:});
             events = obj.calculateEventStatistics(r);
@@ -291,6 +302,10 @@ classdef analysis < handle
             % input handling
             in = obj.parseOptionalInputs(varargin{:});
             
+            include_logic = cellfun(@(x) (~isempty(in.files) && any(strcmp(x.file,in.files))) ... % check matching filename
+                && (~isempty(in.voltage) && any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
+            events = events(include_logic); % limit to these events
+            
             % plot
             f = figure;
             if in.inverted == true
@@ -298,7 +313,10 @@ classdef analysis < handle
             else
                 y = cellfun(@(x) x.fractional_block_mean, events);
             end
-            plot(cellfun(@(x) x.duration, events)*1000, y,'ko','markersize',3)
+            ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
+            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'ro','markersize',3)
+            hold on
+            plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'ko','markersize',3)
             set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
             xlim([1e-2 1e5])
@@ -330,12 +348,20 @@ classdef analysis < handle
             % plot
             f = figure;
             for i = 1:numel(events)
+                if (~isempty(in.files) && ~any(strcmp(events{i}.file,in.files))) ... % if user specified filenames and this event doesn't match one
+                        || (~isempty(in.voltage) && ~any(round(events{i}.voltage/5)*5 == round(in.voltage))) % or if user specified voltages and this event doesn't match one
+                    continue; % skip the rest of this loop iteration
+                end
                 if in.inverted == true
                     y = 1 - events{i}.fractional_block_mean;
                 else
                     y = events{i}.fractional_block_mean;
                 end
-                dot = plot(events{i}.duration*1000, y,'ko','markersize',3);
+                if isfield(events{i},'ended_manually') && events{i}.ended_manually
+                    dot = plot(events{i}.duration*1000, y,'ro','markersize',3);
+                else
+                    dot = plot(events{i}.duration*1000, y,'ko','markersize',3);
+                end
                 set(dot,'ButtonDownFcn',@(~,~) obj.plotEvent(events, i));
                 hold on
             end
@@ -373,7 +399,7 @@ classdef analysis < handle
                         d = obj.downsample_pointwise(events{i}.index+[pad,-1*pad],1000);
                         %stdv = std(d(:,2)*1000);
                         current = d(:,2)*1000;
-                        current = current(current < in.threshhold * events{i}.open_pore_current_mean);
+                        current = current(current < in.threshold * events{i}.open_pore_current_mean);
                         rng = range(current);
                     end
                     if in.inverted == true
@@ -467,7 +493,7 @@ classdef analysis < handle
             % do batch analysis
             events = cell(0);
             for i = 1:numel(in.files)
-                events = [events; obj.batch_findEventsAndSave(in.files{i}, timeranges{i}, in.voltage)];
+                events = [events; obj.batch_findEventsAndSave(in.files{i}, timeranges{i}, in.voltage, varargin{:})];
             end
         end
         
@@ -506,11 +532,11 @@ classdef analysis < handle
             addOptional(p, 'mincond', 1.4, checkPosNum); % min open pore conductance
             addOptional(p, 'maxcond', 3, checkPosNum); % max open pore conductance
             addOptional(p, 'minduration', 1e-6, checkPosNum); % min event duration
-            addOptional(p, 'threshhold', 0.90, checkPosNum); % fraction of open pore event threshhold
-            addOptional(p, 'voltage', [], checkPosNum); % voltage(s) of interest
+            addOptional(p, 'threshold', 0.90, checkPosNum); % fraction of open pore event threshold
+            addOptional(p, 'voltage', [], @(x) all([all(isnumeric(x)), all(abs(x)>=1)])); % voltage(s) of interest
             addOptional(p, 'eventstart', 'currentdrop', checkEventStart); % what defines start of event
             addOptional(p, 'voltagecheck', @(x) (isnumeric(x) & x>1)); % function to use to check if voltages are okay
-            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of files for batch analysis
+            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of filenames
             addOptional(p, 'title', 'Event scatter plot', @(x) ischar(x)); % title on plots
             addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
             addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
@@ -595,24 +621,24 @@ classdef analysis < handle
             end
         end
         
-        function events = batch_findEventsAndSave(obj, file, trange, voltage)
+        function events = batch_findEventsAndSave(obj, file, trange, voltage, varargin)
             % to be called from obj.batch with a given file
             disp(file)
             a = analysis(SignalData(file)); % new object
             vs = voltage;
             if isempty(vs)
                 if isempty(trange)
-                    vs = a.getAppliedVoltages();
-                    events = a.getEvents('threshhold',0.90,'eventstart','currentdrop','voltage',vs); % do event finding
+                    vs = a.getAppliedVoltages(varargin{:});
+                    events = a.getEvents('threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
                 else
-                    vs = a.getAppliedVoltages('trange', trange);
-                    events = a.getEvents('trange',trange,'threshhold',0.90,'eventstart','currentdrop','voltage',vs); % do event finding
+                    vs = a.getAppliedVoltages('trange', trange, varargin{:});
+                    events = a.getEvents('trange',trange,'threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
                 end
             else
                 if isempty(trange)
-                    events = a.getEvents('threshhold',0.90,'eventstart','currentdrop','voltage',vs); % do event finding
+                    events = a.getEvents('threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
                 else
-                    events = a.getEvents('trange',trange,'threshhold',0.90,'eventstart','currentdrop','voltage',vs); % do event finding
+                    events = a.getEvents('trange',trange,'threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
                 end
             end
             
