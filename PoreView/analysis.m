@@ -307,16 +307,16 @@ classdef analysis < handle
             events = events(include_logic); % limit to these events
             
             % plot
-            f = figure;
+            f = in.figure;
             if in.inverted == true
                 y = cellfun(@(x) 1 - x.fractional_block_mean, events);
             else
                 y = cellfun(@(x) x.fractional_block_mean, events);
             end
             ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
-            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'ro','markersize',3)
+            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'x','markersize',3,'color',in.color)
             hold on
-            plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'ko','markersize',3)
+            plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',3,'color',in.color)
             set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
             xlim([1e-2 1e5])
