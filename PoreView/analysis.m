@@ -139,32 +139,27 @@ classdef analysis < handle
             % exact start and end search
             start_inds = -1*ones(numel(possibleStartInds),1);
             end_inds = start_inds;
-            pad = -2;
+            pad = 2;
             for i = 1:numel(possibleStartInds) % go through all candidates
                 % use a double-finding scheme to be as robust as possible
                 % find start
                 temp_start = max(2, obj.sigdata.findPrev(@(x) startcondition_inv(x), ...
-                    (obj.in.trange(1)/dt + min(possibleStartInds(i)+pad, possibleEndInds(i))) * dt/obj.sigdata.si));
+                    (obj.in.trange(1)/dt + min(possibleStartInds(i)-pad, possibleEndInds(i))) * dt/obj.sigdata.si));
                 start_inds(i) = obj.sigdata.findNext(@(x) startcondition(x), temp_start-1);
                 % get mean event conductance
                 evtconductancearray = conductance(possibleStartInds:possibleEndInds);
                 evtconductance = mean( evtconductancearray(evtconductancearray < mean([g_m, min(evtconductancearray)])) );
                 % find end by next cross of threshold
+                start_pt = (obj.in.trange(1)/dt + max(possibleEndInds(i)-pad, possibleStartInds(i))) * dt/obj.sigdata.si+1;
                 if possibleEndInds(i)-possibleStartInds(i) < pad*dt/obj.sigdata.si
                     % end is so close we can search from the start
-                    end_inds_thresh = obj.sigdata.findNext(@(x) any(x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) > g_m * obj.in.threshold, ... % open pore
-                        round(x(:,3)*obj.in.voltagescaling/5)==0, ... % voltage zero
-                        x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) < 0 ), start_inds(i)+pad); % conductance tanked
-                    end_inds_thresh = obj.sigdata.findPrev(@(x) or(endcondition(x, evtconductance), round(x(:,3)*obj.in.voltagescaling/5)==0), end_inds_thresh+1);
-                else
-                    % end is far enough that we should work from our
-                    % best guess of the end itself
-                    end_inds_thresh = obj.sigdata.findNext(@(x) any([x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) > g_m * obj.in.threshold, ... % open pore
-                        round(x(:,3)*obj.in.voltagescaling/5)==0, ... % voltage zero
-                        x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) < 0 ]), ... % conductance tanked
-                        (obj.in.trange(1)/dt + max(possibleEndInds(i)-pad, possibleStartInds(i))) * dt/obj.sigdata.si+1);
-                    end_inds_thresh = obj.sigdata.findPrev(@(x) or(endcondition(x, evtconductance), round(x(:,3)*obj.in.voltagescaling/5)==0), end_inds_thresh+1);
+                    start_pt = start_inds(i) + pad + round(1e-4/obj.sigdata.si);
                 end
+                end_inds_thresh = obj.sigdata.findNext(@(x) x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) > g_m * obj.in.threshold | ... % open pore
+                    round(x(:,3)*obj.in.voltagescaling/5)==0 | ... % voltage zero
+                    x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) < 0, ... % conductance tanked
+                    start_pt);
+                end_inds_thresh = obj.sigdata.findPrev(@(x) or(endcondition(x, evtconductance), round(x(:,3)*obj.in.voltagescaling/5)==0), end_inds_thresh+1);
                 % end should actually be when current starts to return
                 % to open pore
                 ending_bit = obj.sigdata.get(max(start_inds(i),end_inds_thresh-20):max(start_inds(i),end_inds_thresh-5),2) * obj.in.currentscaling;
@@ -220,15 +215,15 @@ classdef analysis < handle
                     y(i,1) = pv.data.get(r(i,1),pv.psigs(1).sigs);
                     y(i,2) = pv.data.get(r(i,2),pv.psigs(1).sigs);
                 end
-                plot(pv.psigs(1).axes, r(:,1)*pv.data.si,y(:,1),'go')
-                plot(pv.psigs(1).axes, r(:,2)*pv.data.si,y(:,2),'rx')
+                plot(pv.psigs(1).axes, r(:,1)*pv.data.si,y(:,1),'go','MarkerSize',10)
+                plot(pv.psigs(1).axes, r(:,2)*pv.data.si,y(:,2),'rx','MarkerSize',10)
             elseif strcmp(how,'one')
                 for i = 1:size(r,1)
                     % use the y values for whatever signal is currently
                     % plotted
                     pv.setView(max(0,sort(r(i,:)+[-100, 100])).*pv.data.si);
-                    plot(pv.psigs(1).axes, r(i,1)*pv.data.si, pv.data.get(r(i,1),pv.psigs(1).sigs),'go')
-                    plot(pv.psigs(1).axes, r(i,2)*pv.data.si, pv.data.get(r(i,2),pv.psigs(1).sigs),'rx')
+                    plot(pv.psigs(1).axes, r(i,1)*pv.data.si, pv.data.get(r(i,1),pv.psigs(1).sigs),'go','MarkerSize',10)
+                    plot(pv.psigs(1).axes, r(i,2)*pv.data.si, pv.data.get(r(i,2),pv.psigs(1).sigs),'rx','MarkerSize',10)
                     pause();
                 end
             end
@@ -358,12 +353,14 @@ classdef analysis < handle
                 y = cellfun(@(x) x.fractional_block_mean, events);
             end
             ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
+            sk23event = cellfun(@(x) x.current_std/x.open_pore_current_mean > 0.05 && x.duration > 1, events); % empirical approximation for real event
             plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'x','markersize',5,'color',obj.in.color)
             hold on
+            plot(cellfun(@(x) x.duration, events(~ended_manually & sk23event))*1000, y(~ended_manually & sk23event),'.','markersize',25,'color','g')
             plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',3,'color',obj.in.color)
             set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
-            xlim([1e-2 1e5])
+            xlim([1e-2 2e5])
             title(obj.in.title)
             xlabel('Duration (ms)')
             if obj.in.inverted == false
@@ -473,7 +470,8 @@ classdef analysis < handle
 %                         current = current(current < in.threshold * events{i}.open_pore_current_mean);
 %                         rng = range(current);
 %                     end
-                    rng = events{i}.current_std/events{i}.open_pore_current_mean;
+                    rng = events{i}.current_std;
+                    %rng = diff(events{i}.current_range);
                     if obj.in.inverted == true
                         y = 1 - events{i}.fractional_block_mean;
                     else
@@ -510,7 +508,7 @@ classdef analysis < handle
             else
                 xlabel('\DeltaI / I_0');
             end
-            ylabel('I_r_a_n_g_e / I_0')
+            ylabel('I_s_t_d / I_0')
             grid on
             
         end
@@ -544,9 +542,15 @@ classdef analysis < handle
             ylim([0 1.1])
             xlim([-Inf Inf])
             
-            annotation('textbox', [0.7 0.25 0 0], 'String', ...
-                [events{i}.file(end-27:end-20), '\_', events{i}.file(end-7:end-4)], ...
-                'FontSize', 20);
+            try
+                annotation('textbox', [0.7 0.25 0 0], 'String', ...
+                    [events{i}.file(end-27:end-20), '\_', events{i}.file(end-7:end-4)], ...
+                    'FontSize', 20);
+            catch
+                annotation('textbox', [0.8 0.93 0 0], 'String', ...
+                    events{i}.file(1:end-4), ... % just take off the suffix
+                    'FontSize', 20);
+            end
             
         end
         
