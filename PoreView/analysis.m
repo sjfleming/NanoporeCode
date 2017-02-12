@@ -163,7 +163,7 @@ classdef analysis < handle
                 % end should actually be when current starts to return
                 % to open pore
                 ending_bit = obj.sigdata.get(max(start_inds(i),end_inds_thresh-20):max(start_inds(i),end_inds_thresh-5),2) * obj.in.currentscaling;
-                V = mode(round(obj.voltage_view(possibleStartInds(i):possibleEndInds(i)))); % estimate of this event's voltage
+                V = mode(round(obj.voltage_view(max(1,possibleStartInds(i)):min(numel(obj.voltage_view),possibleEndInds(i))))); % estimate of this event's voltage
                 end_cond = abs(mean(ending_bit)/V);
                 %end_cond_std = std(ending_bit);
                 end_inds(i) = obj.sigdata.findPrev(@(x) x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) < mean([end_cond, end_cond, end_cond, g_m * obj.in.threshold]), end_inds_thresh);
@@ -262,13 +262,18 @@ classdef analysis < handle
                 events{i}.index = regions(i,:);
                 events{i}.time = regions(i,:) * obj.sigdata.si;
                 % get local open pore value
-                open = obj.sigdata.get((regions(i,1)-100):regions(i,1));
-                open_current = open(:,2)*obj.in.currentscaling; % in pA
-                i2 = find(diff(open_current)>=0,1,'last'); % index of open
-                guessval = open_current(i2);
-                i1 = find(abs(open_current(1:i2))<0.95*abs(guessval),1,'last'); % index of open
-                if isempty(i1)
+                open = obj.sigdata.get(max(1,regions(i,1)-100):max(1,regions(i,1)));
+                if size(open,1)<2
                     i1 = 0;
+                    i2 = 2;
+                else
+                    open_current = open(:,2)*obj.in.currentscaling; % in pA
+                    i2 = find(diff(open_current)>=0,1,'last'); % index of open
+                    guessval = open_current(i2);
+                    i1 = find(abs(open_current(1:i2))<0.95*abs(guessval),1,'last'); % index of open
+                    if isempty(i1)
+                        i1 = 0;
+                    end
                 end
                 events{i}.open_pore_current_mean = mean(open_current(i1+1:i2-1)); % pA
                 events{i}.open_pore_current_std = std(open_current(i1+1:i2-1)); % pA
@@ -319,6 +324,31 @@ classdef analysis < handle
                 % field.  this is done for all events.
                 condition = cellfun(@(x) obj.in.eventlogic.(fields{i})(x.(fields{i})), events);
                 logic = logic & condition; % each time update overall logic
+            end
+            
+        end
+        
+        function events = findEventLevels(obj, events, expectedLevelsPerSecond, falsePositivesPerSecond, varargin)
+        % perform level-finding on each event
+        % find the levels which are significant based on Kevin Karplus'
+        % algorithm. (falsePositivesPerSecond = 1e-4 is typical)
+            
+            % input handling
+            obj.parsed = false;
+            obj.parseOptionalInputs(varargin{:});
+            obj.parsed = true;
+            
+            % loop through each event
+            for i = 1:numel(events)
+                % grab event data
+                pts = 1e6;
+                data = obj.downsample_pointwise(events{i}.index, pts);
+                data = data(:,1:2);
+                data(:,2) = data(:,2)*obj.in.currentscaling;
+                % level find
+                levels = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, obj.in.filter);
+                % store level data in event struct
+                events{i}.levels = levels;
             end
             
         end
@@ -405,7 +435,7 @@ classdef analysis < handle
             events = events(logic & logic2);
             
             % plot
-            f = figure;
+            f = figure(obj.in.figure);
             for i = 1:numel(events)
                 if obj.in.inverted == true
                     y = 1 - events{i}.fractional_block_mean;
@@ -415,7 +445,7 @@ classdef analysis < handle
                 if isfield(events{i},'ended_manually') && events{i}.ended_manually
                     dot = plot(events{i}.duration*1000, y,'rx','markersize',5);
                 else
-                    dot = plot(events{i}.duration*1000, y,'ko','markersize',3);
+                    dot = plot(events{i}.duration*1000, y,'o','markersize',3,'color',obj.in.color);
                 end
                 set(dot,'ButtonDownFcn',@(~,~) obj.plotEvent(events, i));
                 hold on
@@ -518,21 +548,29 @@ classdef analysis < handle
             % calculateEventStatistics, and event number of interest i
             % plot event i
             
-            pad = 100; % data points before and after
+            pad = events{i}.duration/50/obj.sigdata.si; % data points before and after
             
             f = figure;
             if ~strcmp(obj.sigdata.filename,events{i}.file)
                 obj.sigdata = SignalData(events{i}.file);
             end
-            d = obj.downsample_pointwise(events{i}.index + [-1*pad, pad], 10000); % grab data
+            d = obj.downsample_pointwise(events{i}.index + [-1*pad, pad], 50000); % grab data
             
             % plot either in ms or s depending on scale of event
+            timefactor = 1;
             if d(end,1)-d(1,1)<1.5
-                plot((d(:,1)-d(pad+1,1))*1000,d(:,2)*obj.in.currentscaling/events{i}.open_pore_current_mean,'k')
+                timefactor = 1000;
                 xlabel('Time (ms)')
             else
-                plot((d(:,1)-d(pad+1,1)),d(:,2)*obj.in.currentscaling/events{i}.open_pore_current_mean,'k')
                 xlabel('Time (s)')
+            end
+            plot((d(:,1)-d(round(size(d,1)/52)+1,1))*timefactor,d(:,2)*obj.in.currentscaling/events{i}.open_pore_current_mean,'k')
+            
+            % if there are levels specified, show them
+            if isfield(events{i},'levels')
+                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], events{i}.levels, 'uniformoutput', false));
+                means = cellfun(@(x) x.current_mean, events{i}.levels) / events{i}.open_pore_current_mean;
+                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
             end
             
             set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
@@ -751,7 +789,8 @@ classdef analysis < handle
                         end
                         save(savefile,'events'); % save data
                     else
-                        savefile = obj.in.savefile;
+                        %savefile = obj.in.savefile;
+                        savefile = ['Analysis/' file '_events.mat'];
                         save(savefile,'events'); % save data
                     end
                     display(['Saved event data in ' savefile])
