@@ -375,12 +375,20 @@ classdef analysis < handle
             % limit to these events
             events = events(logic & logic2);
             
+            % what to plot
+            switch obj.in.eventblockage
+                case 'mean'
+                    y = cellfun(@(x) x.fractional_block_mean, events);
+                case 'first'
+                    y = cellfun(@(x) x.levels{find(cellfun(@(y) y.duration>1e-3, x.levels),1,'first')}.current_mean / x.open_pore_current_mean, events);
+                case 'last'
+                    y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
+            end
+            
             % plot
             f = figure(obj.in.figure);
             if obj.in.inverted == true
-                y = cellfun(@(x) 1 - x.fractional_block_mean, events);
-            else
-                y = cellfun(@(x) x.fractional_block_mean, events);
+                y = 1-y;
             end
             ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
             sk23event = cellfun(@(x) x.current_std/x.open_pore_current_mean > 0.05 && x.duration > 1, events); % empirical approximation for real event
@@ -434,18 +442,29 @@ classdef analysis < handle
             % limit to these events
             events = events(logic & logic2);
             
+            % what to plot
+            switch obj.in.eventblockage
+                case 'mean'
+                    y = cellfun(@(x) x.fractional_block_mean, events);
+                case 'first'
+                    y = cellfun(@(x) x.levels{find(cellfun(@(y) y.duration>1e-3, x.levels),1,'first')}.current_mean / x.open_pore_current_mean, events);
+                case 'last'
+                    y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
+            end
+            ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
+            duration = cellfun(@(x) x.duration, events)*1000;
+            
             % plot
             f = figure(obj.in.figure);
+            if obj.in.inverted == true
+                y = 1-y;
+            end
+            
             for i = 1:numel(events)
-                if obj.in.inverted == true
-                    y = 1 - events{i}.fractional_block_mean;
+                if ended_manually(i)
+                    dot = plot(duration(i), y(i), 'rx','markersize',5);
                 else
-                    y = events{i}.fractional_block_mean;
-                end
-                if isfield(events{i},'ended_manually') && events{i}.ended_manually
-                    dot = plot(events{i}.duration*1000, y,'rx','markersize',5);
-                else
-                    dot = plot(events{i}.duration*1000, y,'o','markersize',3,'color',obj.in.color);
+                    dot = plot(duration(i), y(i), 'o','markersize',3,'color',obj.in.color);
                 end
                 set(dot,'ButtonDownFcn',@(~,~) obj.plotEvent(events, i));
                 hold on
@@ -548,7 +567,7 @@ classdef analysis < handle
             % calculateEventStatistics, and event number of interest i
             % plot event i
             
-            pad = events{i}.duration/50/obj.sigdata.si; % data points before and after
+            pad = max(2e-4/obj.sigdata.si, events{i}.duration/50/obj.sigdata.si); % data points before and after
             
             f = figure;
             if ~strcmp(obj.sigdata.filename,events{i}.file)
@@ -564,7 +583,7 @@ classdef analysis < handle
             else
                 xlabel('Time (s)')
             end
-            plot((d(:,1)-d(round(size(d,1)/52)+1,1))*timefactor,d(:,2)*obj.in.currentscaling/events{i}.open_pore_current_mean,'k')
+            plot((d(:,1)-events{i}.time(1))*timefactor,d(:,2)*obj.in.currentscaling/events{i}.open_pore_current_mean,'k')
             
             % if there are levels specified, show them
             if isfield(events{i},'levels')
@@ -674,6 +693,7 @@ classdef analysis < handle
             addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
             addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
             addOptional(p, 'savefile', [], @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
+            addOptional(p, 'eventblockage', 'mean', @(x) any(cellfun(@(y) strcmp(x,y), {'mean','first','last'}))); % what to plot for blockage data
             
             % parse
             parse(p,varargin{:});
