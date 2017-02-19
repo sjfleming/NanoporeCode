@@ -8,6 +8,7 @@ classdef analysis < handle
         tr = [-1,-1];
         in = []; % this is the struct containing parsed inputs
         parsed = false;
+        filename = ''; % where data is saved
         
     end
     
@@ -194,17 +195,19 @@ classdef analysis < handle
             regions = regions(~too_short,:);
         end
         
-        function showEventsInPoreView(obj, pv, r_or_events, how)
-            % necessary inputs: PoreView object
-            % result of findEventRegions or calculateEventStatistics, how ('all' or 'one')
-            % plots the events, one-by-one, in PoreView
+        function showEventsInPoreView(obj, pv, events, how)
+            % showEventsInPoreView(pv, events, all_or_one)
+            % ex: obj.showEventsInPoreView([], event{1}, 'one');
+            % necessary inputs:
+            % PoreView object or []
+            % result of findEventRegions or calculateEventStatistics
+            % how (can be 'all' or 'one'). 'one' is for one-at-a-time, with
+            % pauses in between.
+            % plots the events in PoreView
             
-            if iscell(r_or_events)
-                % user passed in events cell struct
-                r = cell2mat(cellfun(@(x) x.index, r_or_events, 'uniformoutput', false));
-            else
-                % user passed in region indices
-                r = r_or_events;
+            r = cell2mat(cellfun(@(x) x.index, events, 'uniformoutput', false));
+            if isempty(pv)
+                pv = pv_launch(events{1}.file);
             end
             
             pv.clearAxes();
@@ -219,11 +222,21 @@ classdef analysis < handle
                 plot(pv.psigs(1).axes, r(:,2)*pv.data.si,y(:,2),'rx','MarkerSize',10)
             elseif strcmp(how,'one')
                 for i = 1:size(r,1)
+                    % if PoreView's SignalData is not current, update it
+                    if ~strcmp(pv.data.filename,events{i}.file)
+                        pv = pv.loadFile(events{i}.file);
+                    end
                     % use the y values for whatever signal is currently
                     % plotted
                     pv.setView(max(0,sort(r(i,:)+[-100, 100])).*pv.data.si);
                     plot(pv.psigs(1).axes, r(i,1)*pv.data.si, pv.data.get(r(i,1),pv.psigs(1).sigs),'go','MarkerSize',10)
                     plot(pv.psigs(1).axes, r(i,2)*pv.data.si, pv.data.get(r(i,2),pv.psigs(1).sigs),'rx','MarkerSize',10)
+                    % if there are levels specified, show them
+                    if isfield(events{i},'levels')
+                        timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], events{i}.levels, 'uniformoutput', false));
+                        means = cellfun(@(x) x.current_mean, events{i}.levels) / obj.in.currentscaling; % pA back to initial data value
+                        plot(pv.psigs(1).axes, timing', (means*[1,1])', '-', 'LineWidth', 4, 'Color', 'k');
+                    end
                     pause();
                 end
             end
@@ -309,6 +322,7 @@ classdef analysis < handle
             
             % input handling
             obj.parseOptionalInputs(varargin{:});
+            obj.parsed = true;
             
             logic = cellfun(@(x) (isempty(obj.in.files) || any(strcmp(x.file,obj.in.files))) ... % check matching filename
                 && (isempty(obj.in.voltage) || any(round(x.voltage/5)*5 == round(obj.in.voltage))), events); % and matching voltage
@@ -328,6 +342,21 @@ classdef analysis < handle
             
         end
         
+        function mol = getMolecules(obj, events)
+            % get the events which seem to be enzyme-driven molecules
+            % this is defined as: not ended manually, I/I_0 < 0.4 && > 0.05
+            % and duration > 1 sec
+            
+            % eventlogic
+            eventlogic = struct();
+            eventlogic.duration = @(x) x > 1;
+            eventlogic.ended_manually = @(x) x == false;
+            eventlogic.fractional_block_mean = @(x) x < 0.4 && x > 0.05;
+            obj.parsed = false; % let parser know it must re-parse inputs
+            
+            mol = events(obj.getLogic(events, 'eventlogic', eventlogic));
+        end
+        
         function events = findEventLevels(obj, events, expectedLevelsPerSecond, falsePositivesPerSecond, varargin)
         % perform level-finding on each event
         % find the levels which are significant based on Kevin Karplus'
@@ -340,15 +369,47 @@ classdef analysis < handle
             
             % loop through each event
             for i = 1:numel(events)
+                % make sure the right file is loaded
+                if ~strcmp(obj.sigdata.filename, events{i}.file)
+                    obj.sigdata = SignalData(events{i}.file);
+                end
                 % grab event data
-                pts = 1e6;
-                data = obj.downsample_pointwise(events{i}.index, pts);
-                data = data(:,1:2);
-                data(:,2) = data(:,2)*obj.in.currentscaling;
-                % level find
-                levels = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, obj.in.filter);
+                pts = round(events{i}.duration * obj.in.filter * 5); % sample at five times filter frequency if possible
+                % if too many points, chunk it in the following way: divide
+                % a first pass coarse, then divide each of those
+                if pts>5e6
+                    true_filter = obj.in.filter;
+                    obj.in.filter = 100; % hijack this filter setting for now for downsampling
+                    data = obj.downsample_pointwise(events{i}.index, min(1e7,5*obj.in.filter*events{i}.duration));
+                    data = data(:,1:2);
+                    data(:,2) = data(:,2)*obj.in.currentscaling;
+                    % level find coarsely based on heavily downsampled data
+                    display('Large event... using iterative level finding ========')
+                    coarse_levels = karplus_levels(data, 1e-10, 1e-50, 10); % try to find only a few (empirical...)
+                    obj.in.filter = true_filter; % return to the real filter setting for fine-grain level finding
+                    levels = cell(0);
+                    for j = 1:numel(coarse_levels)
+                        % level find in each for real, and compile
+                        pts = round(coarse_levels{j}.duration / (1/(obj.in.filter*5))); % sample at five times filter frequency if possible
+                        data = obj.downsample_pointwise([coarse_levels{j}.start_time coarse_levels{j}.end_time]/obj.sigdata.si, pts);
+                        data = data(:,1:2);
+                        data(:,2) = data(:,2)*obj.in.currentscaling;
+                        newlevs = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, obj.in.filter);
+                        levels = [levels; newlevs];
+                    end
+                    display('=====================================================')
+                else
+                    data = obj.downsample_pointwise(events{i}.index, pts);
+                    data = data(:,1:2);
+                    data(:,2) = data(:,2)*obj.in.currentscaling;
+                    % level find
+                    levels = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, obj.in.filter);
+                end
                 % store level data in event struct
                 events{i}.levels = levels;
+                events{i}.level_finding.expectedLevelsPerSecond = expectedLevelsPerSecond;
+                events{i}.level_finding.falsePositivesPerSecond = falsePositivesPerSecond;
+                events{i}.level_finding.filter = obj.in.filter;
             end
             
         end
@@ -562,10 +623,17 @@ classdef analysis < handle
             
         end
         
-        function f = plotEvent(obj, events, i)
+        function f = plotEvent(obj, events, i, varargin)
             % necessary inputs: events cell struct, output of
             % calculateEventStatistics, and event number of interest i
             % plot event i
+            
+            % input handling
+            if numel(varargin)>1
+                obj.parsed = false;
+                obj.parseOptionalInputs(varargin{:});
+                obj.parsed = true;
+            end
             
             pad = max(2e-4/obj.sigdata.si, events{i}.duration/50/obj.sigdata.si); % data points before and after
             
@@ -579,9 +647,6 @@ classdef analysis < handle
             timefactor = 1;
             if d(end,1)-d(1,1)<1.5
                 timefactor = 1000;
-                xlabel('Time (ms)')
-            else
-                xlabel('Time (s)')
             end
             plot((d(:,1)-events{i}.time(1))*timefactor,d(:,2)*obj.in.currentscaling/events{i}.open_pore_current_mean,'k')
             
@@ -595,20 +660,51 @@ classdef analysis < handle
             set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             title(['Event number ' num2str(i)])
             
+            if timefactor==1000
+                xlabel('Time (ms)')
+            else
+                xlabel('Time (s)')
+            end
             ylabel('I / I_0')
             ylim([0 1.1])
             xlim([-Inf Inf])
             
             try
                 annotation('textbox', [0.7 0.25 0 0], 'String', ...
-                    [events{i}.file(end-27:end-20), '\_', events{i}.file(end-7:end-4)], ...
+                    [events{i}.file(end-27:end-20), '\_', events{i}.file(end-7:end-4) ' ' num2str(obj.in.filter) 'Hz'], ...
                     'FontSize', 20);
             catch
                 annotation('textbox', [0.8 0.93 0 0], 'String', ...
-                    events{i}.file(1:end-4), ... % just take off the suffix
+                    [events{i}.file(1:end-4) ' ' num2str(obj.in.filter) 'Hz'], ... % just take off the suffix
                     'FontSize', 20);
             end
             
+        end
+        
+        function f = plotEventSquiggle(obj, events, i, varargin)
+            % f = plotEventSquiggle(events, i, varargin)
+            % if an event has levels found, plot the squiggle data: current
+            % mean versus level number
+            
+            % input handling
+            if numel(varargin)>1
+                obj.parsed = false;
+                obj.parseOptionalInputs(varargin{:});
+                obj.parsed = true;
+            end
+            
+            f = figure;
+            means = cellfun(@(x) x.current_mean, events{i}.levels) / events{i}.open_pore_current_mean;
+            plot(1:numel(means),means,'o-','Color',obj.in.color)
+            
+            title(['Squiggle data: event number ' num2str(i)])
+            
+            ylabel('I (pA)')
+            xlabel('Level number')
+            xlim([0 numel(means)+1])
+            
+            f = obj.polishPlot(f, events{i}, true, true, false);
+
         end
         
         function events = batch(obj, varargin)
@@ -639,6 +735,59 @@ classdef analysis < handle
             events = cell(0);
             for i = 1:numel(obj.in.files)
                 events = [events; obj.batch_findEventsAndSave(obj.in.files{i}, timeranges{i}, obj.in.voltage, varargin{:})];
+            end
+        end
+        
+        function events = inputMetadata(obj, events)
+            % inputMetaData(events)
+            % allows user to input file metadata which enables easier
+            % analysis later based on things like [KCl], temperature,
+            % [ATP], [ADPNP], and which pore was used.
+            
+            inpt = inputdlg({'Pore','Temperature','KCl molarity','ATP molarity','ADPNP molarity','Mg molarity'},'Input metadata',1,{'M2-MspA','25','1.0','0.002','0','0.002'});
+            pore = inpt{1};
+            values = cellfun(@(x) str2double(x), inpt(2:end));
+            for i = 1:numel(events)
+                % tack on metadata
+                events{i}.pore = pore;
+                events{i}.temperature = values(1);
+                events{i}.KCl_molarity = values(2);
+                events{i}.ATP_molarity = values(3);
+                events{i}.ADPNP_molarity = values(4);
+                events{i}.Mg_molarity = values(5);
+            end
+            
+        end
+        
+        function save(obj, events, varargin)
+            % save the data
+            
+            % input handling
+            obj.parsed = false;
+            obj.parseOptionalInputs(varargin{:});
+            obj.parsed = true;
+            
+            % saving
+            if isempty(events)
+                display('No events found')
+            else
+                try
+                    if isempty(obj.in.savefile)
+                        
+                        savefile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-4) '_events.mat'];
+                        % make directory if it doesn't exist
+                        if exist(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)],'dir')==0
+                            mkdir(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)]);
+                        end
+                        save(savefile,'events'); % save data
+                    else
+                        savefile = obj.in.savefile;
+                        save(savefile,'events'); % save data
+                    end
+                    display(['Saved event data in ' savefile])
+                catch ex
+                    display('Trouble saving to specified directory')
+                end
             end
         end
         
@@ -735,6 +884,19 @@ classdef analysis < handle
         function d = downsample_pointwise(obj, inds, pts)
             %DOWNSAMPLE_POINTWISE does a pointwise downsampling, returning ABOUT 'pts' points
             % downsample data in chunks of 2^20
+            
+            % if there is no filtered data in sigdata, make one
+            if obj.in.filter==10000
+                chan = 2;
+            else
+                if any(strcmp(obj.sigdata.getSignalList(),[num2str(obj.in.filter) 'Hz (IN 0)']))
+                    chan = find(strcmp(obj.sigdata.getSignalList(),[num2str(obj.in.filter) 'Hz (IN 0)']),1,'first');
+                else
+                    f = obj.in.filter; % if you don't do this, there will be some weird reference to this object in sigdata... and it won't work
+                    chan = obj.sigdata.addVirtualSignal(@(d) filt_lpb(d,4,f), [num2str(f) 'Hz'], 2); % add filtered channel
+                end
+            end
+            
             d = [];
             numpts = 2^20;
             rep = max(1, round(diff(inds) / pts)); % number of original points per downsampled point
@@ -745,14 +907,13 @@ classdef analysis < handle
             chunks = floor(diff(inds)/numpts); % number of full chunks
             if chunks ~= 0
                 for i = 1:chunks % do chunks of numpts points
-                    fulldata = obj.sigdata.get(inds(1)+(i-1)*numpts:inds(1)+i*numpts-1); % get chunk
+                    fulldata = obj.sigdata.get(inds(1)+(i-1)*numpts:inds(1)+i*numpts-1, [1,chan]); % get chunk
                     d = [d; downsample(fulldata,rep)];
                     clear fulldata
                 end
             end
-            %if mod(pts,numpts)~=0
             if inds(2) - (inds(1)+chunks*numpts) >= rep
-                fulldata = obj.sigdata.get(inds(1)+chunks*numpts:inds(2)); % the last bit that's not a full chunk
+                fulldata = obj.sigdata.get(inds(1)+chunks*numpts:inds(2), [1,chan]); % the last bit that's not a full chunk
                 d = [d; downsample(fulldata,rep)];
             end
         end
@@ -795,29 +956,29 @@ classdef analysis < handle
                     events = a.getEvents('trange',trange,'threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
                 end
             end
-            
-            if isempty(events)
-                display('No events found')
-            else
-                try
-                    if isempty(obj.in.savefile)
-                        
-                        savefile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-4) '_events.mat'];
-                        % make directory if it doesn't exist
-                        if exist(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)],'dir')==0
-                            mkdir(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)]);
-                        end
-                        save(savefile,'events'); % save data
-                    else
-                        %savefile = obj.in.savefile;
-                        savefile = ['Analysis/' file '_events.mat'];
-                        save(savefile,'events'); % save data
-                    end
-                    display(['Saved event data in ' savefile])
-                catch ex
-                    display('Trouble saving to specified directory')
-                end
+            obj.save(events);
+        end
+        
+        function f = polishPlot(obj, f, event, showUpper, showTime, showFilter)
+            % do the things all plots get: annotation and sizing
+            try
+                str = [event.file(end-27:end-20), '\_', event.file(end-7:end-4)];
+            catch
+                str = event.file(1:end-4);
             end
+            if showUpper
+                loc = [0.7 0.91 0 0];
+            else
+                loc = [0.7 0.25 0 0];
+            end
+            if showTime
+                str = [str  ' [' sprintf('%.3g',event.time(1)) '-' sprintf('%.3g',event.time(2)) ']s'];
+            end
+            if showFilter
+                str = [str  ' ' num2str(obj.in.filter) 'Hz'];
+            end
+            annotation('textbox', loc, 'String', str, 'FontSize', 20);
+            set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
         end
         
     end
