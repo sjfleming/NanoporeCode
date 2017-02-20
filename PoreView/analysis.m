@@ -414,6 +414,143 @@ classdef analysis < handle
             
         end
         
+        function events = do_iterative_scaling_alignment(obj, events)
+            % iterates between model scaling and level alignment until
+            % convergence is reached.  helps improve model scaling.
+            
+            % sequence
+            seq = 'RRRRRTTTTTRRRRGGTTGTTTCTGTTGGTGCTGATATTGCGGCGTCTGCTTGGGTGTTTAACCT'; % SK23
+            
+            for i = 1:numel(events)
+                
+                % get the initial predicted levels from oxford
+                events{i}.sequence = seq;
+                levs = cellfun(@(x) x.current_mean, events{i}.levels);
+                hicut = 0.6 * abs(events{i}.open_pore_current_mean);
+                lowcut = 0.05 * abs(events{i}.open_pore_current_mean);
+                [model_levels, model_levels_std] = ...
+                    get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
+                    abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
+%                 [model_levels, model_levels_std,~,~] = ...
+%                     get_model_levels_M2(events{i}.sequence, levs(levs>lowcut & levs<hicut));
+                
+                % save the initial scaling
+                events{i}.model_levels = cell(numel(model_levels),1);
+                for j = 1:numel(model_levels)
+                    events{i}.model_levels{j}.mean = model_levels(j);
+                    events{i}.model_levels{j}.stdev = model_levels_std(j);
+                end
+                
+                % iterate alignment and scaling until convergence is achieved
+                stop_criterion = 0.05;
+                lsqdist = [];
+                dfit = 1;
+                while dfit > stop_criterion && numel(lsqdist) < 20
+                    % do a level alignment
+                    events{i} = obj.do_level_alignment(events{i});
+                    % calculate least-squares distance per measured level
+                    logic = ~isnan(events{i}.level_alignment.model_levels_measured_mean_currents); % these levels are not missing
+                    lsqdist(end+1) = sum((events{i}.level_alignment.model_levels_measured_mean_currents(logic) ...
+                        - cellfun(@(x) x.mean, events{i}.model_levels(logic))).^2) / sum(logic);
+                    if numel(lsqdist)>1
+                        dfit = abs(lsqdist(end)-lsqdist(end-1));
+                    end
+                    if sum(logic)<2
+                        display('Cannot do iterative fitting, too far off.')
+                        break;
+                    end
+                    % do a least-squares fit
+                    f = fit(events{i}.level_alignment.model_levels_measured_mean_currents(logic), ...
+                        cellfun(@(x) x.mean, events{i}.model_levels(logic)), ...
+                        'poly1','Weights', ...
+                        events{i}.level_alignment.model_levels_measured_total_duration(logic), ...
+                        'Robust','bisquare');
+                    % invert to get the scale and offset corrections and update the
+                    % predicted levels
+                    for j = 1:numel(events{i}.model_levels)
+                        events{i}.model_levels{j}.mean = (events{i}.model_levels{j}.mean-f.p2)/f.p1;
+                        events{i}.model_levels{j}.stdev = events{i}.model_levels{j}.stdev/f.p1;
+                    end
+                end
+                
+                if numel(lsqdist)==20
+                    display('Iterative scaling alignment warning: convergence not reached in 20 iterations.')
+                end
+                
+            end
+            
+        end
+        
+        function event = do_level_alignment(obj, event)
+            % align the levels to the predicted model levels
+            % error if we are missing something
+            if ~isfield(event,'levels')
+                display('Error: could not align levels.  No levels extracted from the data!');
+                return;
+            end
+            if ~isfield(event,'model_levels')
+                display('Error: could not align levels.  No predicted sequence levels!');
+                return;
+            end
+            event.level_alignment = struct(); % clear any previous alignment
+            % get reasonable levels
+            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(cellfun(@(x) x.mean, event.model_levels), ...
+                cellfun(@(x) x.stdev, event.model_levels), cellfun(@(x) x.current_mean, event.levels), ...
+                cellfun(@(x) x.duration, event.levels), 0.18*abs(event.open_pore_current_mean));
+            event.level_alignment.model_level_assignment = mod_inds;
+            event.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
+            event.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
+            event.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2), ...
+                cellfun(@(x) x.duration, event.levels(mod_type~=2)), ...
+                size(event.model_levels),@sum,nan); % total time in each level
+            event.level_alignment.P = P; % probabilities in the alignment matrix
+            event.level_alignment.ks = ks; % state index in the alignment matrix
+            
+            % also store the level means and timing after alignment, by
+            % which i mean: combine adjacent "stay" levels
+            lmean = [];
+            lmed = [];
+            lstd = [];
+            ltime = [];
+            tmp = cellfun(@(x) x.current_mean, event.levels);
+            level_means_no_noise = tmp(mod_type==1);
+            tmp = cellfun(@(x) x.current_median, event.levels);
+            level_medians_no_noise = tmp(mod_type==1);
+            tmp = cellfun(@(x) x.current_std, event.levels);
+            level_stds_no_noise = tmp(mod_type==1);
+            tmp = cell2mat(cellfun(@(x) [x.start_time x.end_time], event.levels, 'uniformoutput', false));
+            level_timing_no_noise = tmp(mod_type==1,:);
+            mod_inds_no_noise = mod_inds(mod_type==1);
+            % go through each level
+            i = 1;
+            while i <= numel(mod_inds_no_noise)
+                % find the region of contiguous stay levels
+                last_contiguous_same_ind = find(mod_inds_no_noise(i+1:end) ~= mod_inds_no_noise(i),1,'first') + i - 1;
+                if isempty(last_contiguous_same_ind)
+                    last_contiguous_same_ind = i;
+                end
+                region = (1:numel(mod_inds_no_noise)) >= i & (1:numel(mod_inds_no_noise)) <= last_contiguous_same_ind;
+                % compute stats
+                durations = diff(level_timing_no_noise(region,:),1,2);
+                lmean(end+1) = sum(durations .* level_means_no_noise(region)) / sum(durations);
+                lmed(end+1) = sum(durations .* level_medians_no_noise(region)) / sum(durations);
+                lstd(end+1) = sum(durations .* level_stds_no_noise(region)) / sum(durations);
+                if size(ltime,1)<2
+                    ltime(end+1,:) = [level_timing_no_noise(i,1), level_timing_no_noise(last_contiguous_same_ind,2)];
+                else
+                    ltime(end+1,:) = [ltime(end,2), level_timing_no_noise(last_contiguous_same_ind,2)];
+                end
+                % update index location
+                i = last_contiguous_same_ind + 1;
+            end
+            % save the values in obj.alignment
+            event.level_alignment.level_means = lmean';
+            event.level_alignment.level_medians = lmed';
+            event.level_alignment.level_stds = lstd';
+            event.level_alignment.level_timing = ltime - ltime(1,1); % zero at beginning of molecule
+            
+        end
+        
         function f = plotEventScatter(obj, events, varargin)
             % necessary input: events cell struct, output of
             % calculateEventStatistics
@@ -707,6 +844,58 @@ classdef analysis < handle
 
         end
         
+        function f = plotAlignment(obj, event)
+            % plot the alignment information
+            % if alignment hasn't been done, do it
+            if ~isfield(event.level_alignment,'model_level_assignment')
+                %obj.do_iterative_scaling_alignment;
+                display('Alignment not completed!')
+                return;
+            end
+            f = figure();
+            
+            mod_inds = event.level_alignment.model_level_assignment;
+            mod_type = event.level_alignment.level_type; % 1 is normal, 2 is noise, 3 is deep block
+            lvl_accum = event.level_alignment.model_levels_measured_mean_currents; % mean of level currents for each level assigned to a given model level
+            lvls = cellfun(@(x) x.current_mean, event.levels);
+            
+            subplot(3,1,1);
+            plot(cellfun(@(x) x.mean, event.model_levels),'o-','LineWidth',2)
+            hold on
+            plot(lvl_accum,'o-','LineWidth',2);
+            legend('Model','Data')
+            ylabel('Current (pA)')
+            xlabel('Model level')
+            xlim([0 find(~isnan(lvl_accum),1,'last')+1])
+            set(gca,'FontSize',20)
+            title('Best fit of data to model')
+            
+            subplot(3,1,2);
+            plot(abs(lvls))
+            for i=1:numel(lvls)
+                text(i,abs(lvls(i)),num2str(mod_inds(i)),'FontSize',14);
+            end
+            hold on
+            xx = 1:numel(event.levels);
+            plot(xx(mod_type==2),cellfun(@(x) x.current_mean, event.levels(mod_type==2)),'rx','MarkerSize',10)
+            plot(xx(mod_type==3),cellfun(@(x) x.current_mean, event.levels(mod_type==3)),'go','MarkerSize',10)
+            ylabel('Current (pA)')
+            xlabel('Measured level')
+            xlim([0 numel(lvls)+1])
+            set(gca,'FontSize',20)
+            title('Matching each measured level to a model state')
+            
+            subplot(3,1,3);
+            imagesc(1.03.^(event.level_alignment.P/2)) % scales so image shows up well
+            hold on
+            plot(1:numel(lvls),event.level_alignment.ks,'r','LineWidth',3);
+            title('Probability Matrix')
+            ylabel('State')
+            xlabel('Level Number')
+            set(gca,'FontSize',20)
+            
+        end
+        
         function events = batch(obj, varargin)
             % batch analysis
             % needed input: files
@@ -907,13 +1096,13 @@ classdef analysis < handle
             chunks = floor(diff(inds)/numpts); % number of full chunks
             if chunks ~= 0
                 for i = 1:chunks % do chunks of numpts points
-                    fulldata = obj.sigdata.get(inds(1)+(i-1)*numpts:inds(1)+i*numpts-1, [1,chan]); % get chunk
+                    fulldata = obj.sigdata.get(inds(1)+(i-1)*numpts:inds(1)+i*numpts-1, [1,chan,3]); % get chunk
                     d = [d; downsample(fulldata,rep)];
                     clear fulldata
                 end
             end
             if inds(2) - (inds(1)+chunks*numpts) >= rep
-                fulldata = obj.sigdata.get(inds(1)+chunks*numpts:inds(2), [1,chan]); % the last bit that's not a full chunk
+                fulldata = obj.sigdata.get(inds(1)+chunks*numpts:inds(2), [1,chan,3]); % the last bit that's not a full chunk
                 d = [d; downsample(fulldata,rep)];
             end
         end
