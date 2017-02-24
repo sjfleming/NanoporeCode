@@ -1,18 +1,885 @@
 classdef analysis < handle
+% ANALYSIS
+% Class for analysis of nanopore data, or other time-dependent signal data.
+% Can be instantiated as an object associated with a particular file.
+% Also has static methods which can be called to automate batch file
+% analysis, or to plot or further analyze results of previous analyses.
+% 
+% Stephen Fleming
+% 2/23/17
     
     properties
         
-        sigdata = [];
-        voltage_view = NaN;
-        current_view = NaN;
-        tr = [-1,-1];
-        in = []; % this is the struct containing parsed inputs
-        parsed = false;
-        filename = ''; % where data is saved
+        % these properties go with a single file for which an analysis
+        % object has been created
+        sigdata = []; % SignalData object associated with data file
+        in = []; % struct containing parsed inputs
+        parsed = false; % has optional user input been parsed?
+        metadata = []; % metadata about file
         
     end
     
-    methods
+    methods (Static, Access = public) % can be called from outside an object by specifying files or analysis outputs
+        
+        % batch file analysis and metadata
+        
+        function events = batch(varargin)
+            % events = batch('files',files_cell_array,'optional...')
+            % batch analysis
+            % required input: files
+            % optional inputs: voltages, event threshold, open pore limits
+            
+            % input handling
+            in = analysis.parseAnalysisInputs(varargin{:});
+            
+            display('Batch data analysis:')
+            
+            % input metadata
+            metadata = analysis.inputMetadata();
+            
+            % choose time ranges of interest in each file
+            for i = 1:numel(in.files)
+                if ishandle(1)
+                    close(1);
+                end
+                pv = PoreView(in.files{i});
+                drawnow;
+                display('Set cursors to region of interest')
+                pause();
+                tr = pv.getCursors();
+                if isempty(tr) % no selection means whole file
+                    tr = [pv.data.tstart, pv.data.tend];
+                end
+                timeranges{i} = tr;
+            end
+            
+            % do batch analysis
+            events = cell(0);
+            for i = 1:numel(in.files)
+                a = analysis(SignalData(in.files{i})); % create an object instance for this file
+                a.in = in; % use parsed inputs
+                a.parsed = true; % shortcut unnecessary re-parsing
+                a.in.trange = timeranges{i}; % which time range for this file
+                a.in.files = in.files{i}; % which file
+                a.metadata = metadata;
+                events = [events; a.findEventsAndSave()];
+            end
+
+        end
+        
+        function events = attachMetadata(events, varargin)
+            % events = attachMetadata(events)
+            % allows user to input file metadata which enables easier
+            % analysis later based on things like [KCl], temperature,
+            % [ATP], [ADPNP], and which pore was used.
+            
+            if numel(varargin)<1
+                md = analysis.inputMetadata();
+            else
+                md = varargin{1};
+            end
+            fields = fieldnames(md);
+            for i = 1:numel(events)
+                for j = 1:numel(fields)
+                    % field names in metadata are added to events
+                    events{i}.(fields{j}) = md.(fields{j});
+                end
+            end
+            
+        end
+        
+        % further event analysis: level finding, alignment, etc.
+        
+        function logic = getLogic(events, varargin)
+            % generate a logical array of size events that says whether
+            % each event satisfies the criteria in varargin
+            % and the conditions in 'eventlogic' optional input field:
+            % eventlogic should be a struct with optional fields that match
+            % the names of fields in events, but which are logic operations
+            % which must all be true for getLogic to be true
+            
+            % input handling
+            in = parseAnalysisInputs(varargin{:});
+            
+            logic = cellfun(@(x) (isempty(in.files) || any(strcmp(x.file,in.files))) ... % check matching filename
+                && (isempty(in.voltage) || any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
+            
+            % get any extra conditionals from 'eventlogic' argument
+            if isempty(in.eventlogic)
+                return;
+            end
+            fields = fieldnames(in.eventlogic);
+            for i = 1:numel(fields)
+                % dynamic field name in eventlogic references function
+                % handle which gets passed the argument from events' same
+                % field.  this is done for all events.
+                condition = cellfun(@(x) in.eventlogic.(fields{i})(x.(fields{i})), events);
+                logic = logic & condition; % each time update overall logic
+            end
+            
+        end
+        
+        function events = findEventLevels(events, expectedLevelsPerSecond, falsePositivesPerSecond, varargin)
+        % perform level-finding on each event
+        % find the levels which are significant based on Kevin Karplus'
+        % algorithm. (falsePositivesPerSecond = 1e-4 is typical)
+            
+            % input handling
+            in = parseAnalysisInputs(varargin{:});
+            
+            % loop through each event
+            for i = 1:numel(events)
+                % make sure the right file is loaded
+                if ~strcmp(obj.sigdata.filename, events{i}.file)
+                    obj.sigdata = SignalData(events{i}.file);
+                end
+                % grab event data
+                pts = round(events{i}.duration * in.filter * 5); % sample at five times filter frequency if possible
+                % if too many points, chunk it in the following way: divide
+                % a first pass coarse, then divide each of those
+                if pts>5e6
+                    true_filter = in.filter;
+                    in.filter = 100; % hijack this filter setting for now for downsampling
+                    data = obj.downsample_pointwise(events{i}.index, min(1e7,5*obj.in.filter*events{i}.duration));
+                    data = data(:,1:2);
+                    data(:,2) = data(:,2)*in.currentscaling;
+                    % level find coarsely based on heavily downsampled data
+                    display('Large event... using iterative level finding ========')
+                    coarse_levels = karplus_levels(data, 1e-10, 1e-50, 10); % try to find only a few (empirical...)
+                    obj.in.filter = true_filter; % return to the real filter setting for fine-grain level finding
+                    levels = cell(0);
+                    for j = 1:numel(coarse_levels)
+                        % level find in each for real, and compile
+                        pts = round(coarse_levels{j}.duration / (1/(in.filter*5))); % sample at five times filter frequency if possible
+                        data = obj.downsample_pointwise([coarse_levels{j}.start_time coarse_levels{j}.end_time]/obj.sigdata.si, pts);
+                        data = data(:,1:2);
+                        data(:,2) = data(:,2)*in.currentscaling;
+                        newlevs = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, in.filter);
+                        levels = [levels; newlevs];
+                    end
+                    display('=====================================================')
+                else
+                    data = obj.downsample_pointwise(events{i}.index, pts);
+                    data = data(:,1:2);
+                    data(:,2) = data(:,2)*in.currentscaling;
+                    % level find
+                    levels = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, in.filter);
+                end
+                % store level data in event struct
+                events{i}.levels = levels;
+                events{i}.level_finding.expectedLevelsPerSecond = expectedLevelsPerSecond;
+                events{i}.level_finding.falsePositivesPerSecond = falsePositivesPerSecond;
+                events{i}.level_finding.filter = in.filter;
+            end
+            
+        end
+        
+        function events = doIterativeScalingAlignment(events)
+            % iterates between model scaling and level alignment until
+            % convergence is reached.  helps improve model scaling.
+            
+            % sequence
+            seq = 'RRRRRTTTTTRRRRGGTTGTTTCTGTTGGTGCTGATATTGCGGCGTCTGCTTGGGTGTTTAACCT'; % SK23
+            
+            for i = 1:numel(events)
+                
+                % get the initial predicted levels from oxford
+                events{i}.sequence = seq;
+                levs = cellfun(@(x) x.current_mean, events{i}.levels);
+                hicut = 0.6 * abs(events{i}.open_pore_current_mean);
+                lowcut = 0.05 * abs(events{i}.open_pore_current_mean);
+                [model_levels, model_levels_std] = ...
+                    get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
+                    abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
+%                 [model_levels, model_levels_std,~,~] = ...
+%                     get_model_levels_M2(events{i}.sequence, levs(levs>lowcut & levs<hicut));
+                
+                % save the initial scaling
+                events{i}.model_levels = cell(numel(model_levels),1);
+                for j = 1:numel(model_levels)
+                    events{i}.model_levels{j}.mean = model_levels(j);
+                    events{i}.model_levels{j}.stdev = model_levels_std(j);
+                end
+                
+                % iterate alignment and scaling until convergence is achieved
+                stop_criterion = 0.05;
+                lsqdist = [];
+                dfit = 1;
+                while dfit > stop_criterion && numel(lsqdist) < 20
+                    % do a level alignment
+                    events{i} = obj.doLevelAlignment(events{i});
+                    % calculate least-squares distance per measured level
+                    logic = ~isnan(events{i}.level_alignment.model_levels_measured_mean_currents); % these levels are not missing
+                    lsqdist(end+1) = sum((events{i}.level_alignment.model_levels_measured_mean_currents(logic) ...
+                        - cellfun(@(x) x.mean, events{i}.model_levels(logic))).^2) / sum(logic);
+                    if numel(lsqdist)>1
+                        dfit = abs(lsqdist(end)-lsqdist(end-1));
+                    end
+                    if sum(logic)<2
+                        display('Cannot do iterative fitting, too far off.')
+                        break;
+                    end
+                    % do a least-squares fit
+                    f = fit(events{i}.level_alignment.model_levels_measured_mean_currents(logic), ...
+                        cellfun(@(x) x.mean, events{i}.model_levels(logic)), ...
+                        'poly1','Weights', ...
+                        events{i}.level_alignment.model_levels_measured_total_duration(logic), ...
+                        'Robust','bisquare');
+                    % invert to get the scale and offset corrections and update the
+                    % predicted levels
+                    for j = 1:numel(events{i}.model_levels)
+                        events{i}.model_levels{j}.mean = (events{i}.model_levels{j}.mean-f.p2)/f.p1;
+                        events{i}.model_levels{j}.stdev = events{i}.model_levels{j}.stdev/f.p1;
+                    end
+                end
+                
+                if numel(lsqdist)==20
+                    display('Iterative scaling alignment warning: convergence not reached in 20 iterations.')
+                end
+                
+            end
+            
+        end
+        
+        function event = doLevelAlignment(event)
+            % align the levels to the predicted model levels
+            % error if we are missing something
+            if ~isfield(event,'levels')
+                display('Error: could not align levels.  No levels extracted from the data!');
+                return;
+            end
+            if ~isfield(event,'model_levels')
+                display('Error: could not align levels.  No predicted sequence levels!');
+                return;
+            end
+            event.level_alignment = struct(); % clear any previous alignment
+            % get reasonable levels
+            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(cellfun(@(x) x.mean, event.model_levels), ...
+                cellfun(@(x) x.stdev, event.model_levels), cellfun(@(x) x.current_mean, event.levels), ...
+                cellfun(@(x) x.duration, event.levels), 0.18*abs(event.open_pore_current_mean));
+            event.level_alignment.model_level_assignment = mod_inds;
+            event.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
+            event.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
+            event.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2), ...
+                cellfun(@(x) x.duration, event.levels(mod_type~=2)), ...
+                size(event.model_levels),@sum,nan); % total time in each level
+            event.level_alignment.P = P; % probabilities in the alignment matrix
+            event.level_alignment.ks = ks; % state index in the alignment matrix
+            
+            % also store the level means and timing after alignment, by
+            % which i mean: combine adjacent "stay" levels
+            lmean = [];
+            lmed = [];
+            lstd = [];
+            ltime = [];
+            tmp = cellfun(@(x) x.current_mean, event.levels);
+            level_means_no_noise = tmp(mod_type==1);
+            tmp = cellfun(@(x) x.current_median, event.levels);
+            level_medians_no_noise = tmp(mod_type==1);
+            tmp = cellfun(@(x) x.current_std, event.levels);
+            level_stds_no_noise = tmp(mod_type==1);
+            tmp = cell2mat(cellfun(@(x) [x.start_time x.end_time], event.levels, 'uniformoutput', false));
+            level_timing_no_noise = tmp(mod_type==1,:);
+            mod_inds_no_noise = mod_inds(mod_type==1);
+            % go through each level
+            i = 1;
+            while i <= numel(mod_inds_no_noise)
+                % find the region of contiguous stay levels
+                last_contiguous_same_ind = find(mod_inds_no_noise(i+1:end) ~= mod_inds_no_noise(i),1,'first') + i - 1;
+                if isempty(last_contiguous_same_ind)
+                    last_contiguous_same_ind = i;
+                end
+                region = (1:numel(mod_inds_no_noise)) >= i & (1:numel(mod_inds_no_noise)) <= last_contiguous_same_ind;
+                % compute stats
+                durations = diff(level_timing_no_noise(region,:),1,2);
+                lmean(end+1) = sum(durations .* level_means_no_noise(region)) / sum(durations);
+                lmed(end+1) = sum(durations .* level_medians_no_noise(region)) / sum(durations);
+                lstd(end+1) = sum(durations .* level_stds_no_noise(region)) / sum(durations);
+                if size(ltime,1)<2
+                    ltime(end+1,:) = [level_timing_no_noise(i,1), level_timing_no_noise(last_contiguous_same_ind,2)];
+                else
+                    ltime(end+1,:) = [ltime(end,2), level_timing_no_noise(last_contiguous_same_ind,2)];
+                end
+                % update index location
+                i = last_contiguous_same_ind + 1;
+            end
+            % save the values in obj.alignment
+            event.level_alignment.level_means = lmean';
+            event.level_alignment.level_medians = lmed';
+            event.level_alignment.level_stds = lstd';
+            event.level_alignment.level_timing = ltime - ltime(1,1); % zero at beginning of molecule
+            
+        end
+        
+        % plotting of all kinds
+        
+        function showEventsInPoreView(pv, events, how)
+            % showEventsInPoreView(pv, events, all_or_one)
+            % ex: obj.showEventsInPoreView([], event{1}, 'one');
+            % necessary inputs:
+            % PoreView object or []
+            % result of findEventRegions or calculateEventStatistics
+            % how (can be 'all' or 'one'). 'one' is for one-at-a-time, with
+            % pauses in between.
+            % plots the events in PoreView
+            
+            r = cell2mat(cellfun(@(x) x.index, events, 'uniformoutput', false));
+            if isempty(pv)
+                pv = pv_launch(events{1}.file);
+            end
+            
+            pv.clearAxes();
+            if strcmp(how,'all')
+                for i = 1:size(r,1)
+                    % use the y values for whatever signal is currently
+                    % plotted
+                    y(i,1) = pv.data.get(r(i,1),pv.psigs(1).sigs);
+                    y(i,2) = pv.data.get(r(i,2),pv.psigs(1).sigs);
+                end
+                plot(pv.psigs(1).axes, r(:,1)*pv.data.si,y(:,1),'go','MarkerSize',10)
+                plot(pv.psigs(1).axes, r(:,2)*pv.data.si,y(:,2),'rx','MarkerSize',10)
+            elseif strcmp(how,'one')
+                for i = 1:size(r,1)
+                    % if PoreView's SignalData is not current, update it
+                    if ~strcmp(pv.data.filename,events{i}.file)
+                        pv = pv.loadFile(events{i}.file);
+                    end
+                    % use the y values for whatever signal is currently
+                    % plotted
+                    pv.setView(max(0,sort(r(i,:)+[-100, 100])).*pv.data.si);
+                    plot(pv.psigs(1).axes, r(i,1)*pv.data.si, pv.data.get(r(i,1),pv.psigs(1).sigs),'go','MarkerSize',10)
+                    plot(pv.psigs(1).axes, r(i,2)*pv.data.si, pv.data.get(r(i,2),pv.psigs(1).sigs),'rx','MarkerSize',10)
+                    % if there are levels specified, show them
+                    if isfield(events{i},'levels')
+                        timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], events{i}.levels, 'uniformoutput', false));
+                        means = cellfun(@(x) x.current_mean, events{i}.levels) / obj.in.currentscaling; % pA back to initial data value
+                        plot(pv.psigs(1).axes, timing', (means*[1,1])', '-', 'LineWidth', 4, 'Color', 'k');
+                    end
+                    pause();
+                end
+            end
+        end
+        
+        function f = plotEventScatter(events, varargin)
+            % necessary input: events cell struct, output of
+            % calculateEventStatistics
+            % optional input: title for plot
+            % plot a scatter plot of event mean fractional blockages versus
+            % durations
+            
+            % input handling
+            in = parsePlottingInputs(varargin{:});
+            
+            % get logical array for which events are specified
+            logic = obj.getLogic(events, varargin{:});
+            
+            % limit to these events
+            events = events(logic);
+            
+            % what to plot
+            switch in.eventblockage
+                case 'mean'
+                    y = cellfun(@(x) x.fractional_block_mean, events);
+                case 'first'
+                    y = cellfun(@(x) x.levels{find(cellfun(@(y) y.duration>1e-3, x.levels),1,'first')}.current_mean / x.open_pore_current_mean, events);
+                case 'last'
+                    y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
+            end
+            
+            % plot
+            f = figure(in.figure);
+            if in.inverted == true
+                y = 1-y;
+            end
+            ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
+            sk23event = cellfun(@(x) x.current_std/x.open_pore_current_mean > 0.05 && x.duration > 1, events); % empirical approximation for real event
+            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'x','markersize',5,'color',in.color)
+            hold on
+            plot(cellfun(@(x) x.duration, events(~ended_manually & sk23event))*1000, y(~ended_manually & sk23event),'.','markersize',25,'color','g')
+            plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',3,'color',in.color)
+            set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            ylim([0 1])
+            xlim([1e-2 2e5])
+            title(in.title)
+            xlabel('Duration (ms)')
+            if in.inverted == false
+                ylabel('I / I_0');
+                try
+                    annotation('textbox', [0.7 0.9 0 0], 'String', ...
+                        char(unique(cellfun(@(x) [x.file(end-27:end-20), '\_', x.file(end-7:end-4)], events, 'uniformoutput', false))), ...
+                        'FontSize', 20);
+                catch ex
+                end
+            else
+                ylabel('\DeltaI / I_0');
+                try
+                    annotation('textbox', [0.7 0.25 0 0], 'String', ...
+                        char(unique(cellfun(@(x) [x.file(end-27:end-20), '\_', x.file(end-7:end-4)], events, 'uniformoutput', false))), ...
+                        'FontSize', 20);
+                catch ex
+                end
+            end
+        end
+        
+        function f = plotInteractiveEventScatter(events, varargin)
+            % necessary input: events cell struct, output of
+            % calculateEventStatistics
+            % optional input: title for plot, inverted
+            % plot a scatter plot of event mean fractional blockages versus
+            % durations that you can click on, and will plot individuals
+            
+            % input handling
+            in = parsePlottingInputs(varargin{:});
+            
+            % if user used 'eventlogic'
+            logic = obj.getLogic(events, varargin{:});
+            
+            % limit to these events
+            events = events(logic);
+            
+            % what to plot
+            switch in.eventblockage
+                case 'mean'
+                    y = cellfun(@(x) x.fractional_block_mean, events);
+                case 'first'
+                    y = cellfun(@(x) x.levels{find(cellfun(@(y) y.duration>1e-3, x.levels),1,'first')}.current_mean / x.open_pore_current_mean, events);
+                case 'last'
+                    y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
+            end
+            ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
+            duration = cellfun(@(x) x.duration, events)*1000;
+            
+            % plot
+            f = figure(in.figure);
+            if in.inverted == true
+                y = 1-y;
+            end
+            
+            sd = SignalData(events{1});
+            for i = 1:numel(events)
+                % load SignalData
+                if ~strcmp(sd.filename,events{i}.file)
+                    sd = SignalData(events{i}.file);
+                end
+                % plot
+                if ended_manually(i)
+                    dot = plot(duration(i), y(i), 'rx','markersize',5);
+                else
+                    dot = plot(duration(i), y(i), 'o','markersize',3,'color',in.color);
+                end
+                set(dot,'ButtonDownFcn',@(~,~) obj.plotSingleEvent(events{i},sd,varargin{:}));
+                hold on
+            end
+            set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            ylim([0 1])
+            title('Interactive event scatter plot')
+            xlabel('Duration (ms)')
+            if in.inverted == false
+                ylabel('I / I_0');
+            else
+                ylabel('\DeltaI / I_0');
+            end
+            box on
+            
+        end
+        
+        function f = plotInteractiveEventScatter3(events, varargin)
+            % necessary input: events cell struct, output of
+            % calculateEventStatistics
+            % optional input: figure, color
+            % plot a scatter plot of event mean fractional blockages versus
+            % durations that you can click on, and will plot individuals
+            % plots I/I0, Irange/I0, and duration
+            
+            % input handling
+            in = parsePlottingInputs(varargin{:});
+            
+            % if user used 'eventlogic'
+            logic = obj.getLogic(events, varargin{:});
+            
+            % limit to these events
+            events = events(logic);
+            
+            % plot
+            f = figure(in.figure);
+            for i = 1:numel(events)
+                try
+%                     if isfield(events{i},'current_range')
+%                         rng = events{i}.current_range;
+%                     else
+%                         pad = min(diff(events{i}.index)/2-1,20);
+%                         d = obj.downsample_pointwise(events{i}.index+[pad,-1*pad],1000);
+%                         %stdv = std(d(:,2)*obj.in.currentscaling);
+%                         current = d(:,2)*obj.in.currentscaling;
+%                         current = current(current < in.threshold * events{i}.open_pore_current_mean);
+%                         rng = range(current);
+%                     end
+                    rng = events{i}.current_std;
+                    %rng = diff(events{i}.current_range);
+                    if obj.in.inverted == true
+                        y = 1 - events{i}.fractional_block_mean;
+                    else
+                        y = events{i}.fractional_block_mean;
+                    end
+                    if isfield(events{i},'ended_manually')
+                        if events{i}.ended_manually
+                            dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
+                                events{i}.duration*1000, 'x', 'Color', 'r', 'markersize', 5);
+                        else
+                            dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
+                                events{i}.duration*1000, 'o', 'Color', in.color, 'markersize', 3);
+                        end
+                    else
+                        dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
+                            events{i}.duration*1000, 'o', 'Color', in.color, 'markersize', 3);
+                    end
+%                     if rng/events{i}.open_pore_current_mean > 1
+%                         pause();
+%                     end
+                    set(dot,'ButtonDownFcn',@(~,~) obj.plotSingleEvent(events{i},varargin{:}));
+                    hold on
+                catch ex
+                    disp(['Unable to plot event ' num2str(i)])
+                end
+            end
+            set(gca,'zscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            xlim([0 1])
+            %ylim([0 1])
+            title('Interactive event scatter plot')
+            zlabel('Duration (ms)')
+            if in.inverted == false
+                xlabel('I / I_0');
+            else
+                xlabel('\DeltaI / I_0');
+            end
+            ylabel('I_s_t_d / I_0')
+            grid on
+            
+        end
+        
+        function f = plotEvent(event, varargin)
+            % f = plotEvent(event, 'optional_inputs'...)
+            % necessary inputs: event cell struct
+            % optional: filter, color, current scaling, sampling, etc.
+            % returns figure handle
+            
+            % input handling
+            in = parsePlottingInputs(varargin{:});
+            
+            % create SignalData for obtaining the event data
+            sd = SignalData(event.file);
+            
+            pad = max(2e-4/sd.si, event.duration/50/sd.si); % data points before and after
+            
+            f = in.figure;
+            d = obj.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
+            
+            % plot either in ms or s depending on scale of event
+            timefactor = 1;
+            if d(end,1)-d(1,1)<1.5
+                timefactor = 1000;
+            end
+            plot((d(:,1)-event.time(1))*timefactor,d(:,2)*in.currentscaling/event.open_pore_current_mean,'k')
+            
+            % if there are levels specified, show them
+            if isfield(event,'levels')
+                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
+                means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
+                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
+            end
+            
+            title('Event trace')
+            
+            if timefactor==1000
+                xlabel('Time (ms)')
+            else
+                xlabel('Time (s)')
+            end
+            ylabel('I / I_0')
+            ylim([0 1.1])
+            xlim([-Inf Inf])
+            
+            obj.finishPlot(f, event, true, true, true);
+            
+        end
+        
+        function f = plotEventSquiggle(event, varargin)
+            % f = plotEventSquiggle(event, varargin)
+            % if an event has levels found, plot the squiggle data: current
+            % mean versus level number.  return figure handle f.
+            
+            % input handling
+            in = parsePlottingInputs(varargin{:});
+            
+            f = in.figure;
+            means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
+            plot(1:numel(means),means,'o-','Color',in.color)
+            
+            if isempty(in.title)
+                title('Squiggle data')
+            else
+                title(in.title)
+            end
+            
+            ylabel('I (pA)')
+            xlabel('Level number')
+            xlim([0 numel(means)+1])
+            
+            f = obj.finishPlot(f, event, true, true, false);
+
+        end
+        
+        function f = plotAlignment(event, varargin)
+            % plot the alignment information
+            
+            % check for alignment
+            if ~isfield(event.level_alignment,'model_level_assignment')
+                %obj.do_iterative_scaling_alignment;
+                display('Alignment not completed!')
+                return;
+            end
+            
+            % input handling
+            in = parsePlottingInputs(varargin{:});
+            
+            f = in.figure();
+            
+            mod_inds = event.level_alignment.model_level_assignment;
+            mod_type = event.level_alignment.level_type; % 1 is normal, 2 is noise, 3 is deep block
+            lvl_accum = event.level_alignment.model_levels_measured_mean_currents; % mean of level currents for each level assigned to a given model level
+            lvls = cellfun(@(x) x.current_mean, event.levels);
+            
+            subplot(3,1,1);
+            plot(cellfun(@(x) x.mean, event.model_levels),'o-','LineWidth',2)
+            hold on
+            plot(lvl_accum,'o-','LineWidth',2);
+            legend('Model','Data')
+            ylabel('Current (pA)')
+            xlabel('Model level')
+            xlim([0 find(~isnan(lvl_accum),1,'last')+1])
+            set(gca,'FontSize',20)
+            title('Best fit of data to model')
+            
+            subplot(3,1,2);
+            plot(abs(lvls))
+            for i=1:numel(lvls)
+                text(i,abs(lvls(i)),num2str(mod_inds(i)),'FontSize',14);
+            end
+            hold on
+            xx = 1:numel(event.levels);
+            plot(xx(mod_type==2),cellfun(@(x) x.current_mean, event.levels(mod_type==2)),'rx','MarkerSize',10)
+            plot(xx(mod_type==3),cellfun(@(x) x.current_mean, event.levels(mod_type==3)),'go','MarkerSize',10)
+            ylabel('Current (pA)')
+            xlabel('Measured level')
+            xlim([0 numel(lvls)+1])
+            set(gca,'FontSize',20)
+            title('Matching each measured level to a model state')
+            
+            subplot(3,1,3);
+            imagesc(1.03.^(event.level_alignment.P/2)) % scales so image shows up well
+            hold on
+            plot(1:numel(lvls),event.level_alignment.ks,'r','LineWidth',3);
+            title('Probability Matrix')
+            ylabel('State')
+            xlabel('Level Number')
+            set(gca,'FontSize',20)
+            
+        end
+        
+        % saving data
+        
+        function save(events, varargin)
+            % save the data
+            
+            % input handling
+            in = analysis.parseAnalysisInputs(varargin{:});
+            
+            % saving
+            if isempty(events)
+                display('No events found')
+            else
+                try
+                    if isempty(in.savefile)
+                        savefile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-4) '_events.mat'];
+                        % make directory if it doesn't exist
+                        if exist(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)],'dir')==0
+                            mkdir(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)]);
+                        end
+                    else
+                        savefile = in.savefile;
+                    end
+                    save(savefile,'events'); % save data
+                    display(['Saved event data in ' savefile])
+                catch ex
+                    display('Trouble saving to specified directory')
+                end
+            end
+        end
+        
+    end
+    
+    methods (Static, Access = private) % called outside an object, but not by a user directly
+        
+        function in = parseAnalysisInputs(varargin)
+            % parse all inputs so all methods can use them easily
+            p = inputParser;
+            
+            % defaults and checks
+            defaultFilterFreq = 1000;
+            defaultSampleFreq = 5000;
+            checkFilterFreq = @(x) all([isnumeric(x), numel(x)==1, x>=10, x<=20000]);
+            
+            defaultTimeRange = [];
+            checkTimeRange = @(x) all([all(isnumeric(x)), numel(x)==2, x(1)<x(2)]);
+            
+            checkPosNum = @(x) all([all(isnumeric(x)), all(x>=0)]);
+            
+            checkEventStart = @(x) any([strcmp(x, 'voltagedrop'), strcmp(x, 'currentdrop')]);
+            
+            % set up the inputs
+            addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
+            addOptional(p, 'sample', defaultSampleFreq, checkFilterFreq); % (down-) sampling frequency
+            addOptional(p, 'trange', defaultTimeRange, checkTimeRange); % time range of interest
+            addOptional(p, 'mincond', 1.4, checkPosNum); % min open pore conductance
+            addOptional(p, 'maxcond', 3, checkPosNum); % max open pore conductance
+            addOptional(p, 'minduration', 1e-6, checkPosNum); % min event duration
+            addOptional(p, 'threshold', 0.90, checkPosNum); % fraction of open pore event threshold
+            addOptional(p, 'voltage', [], @(x) all([all(isnumeric(x)), all(abs(x)>=1)])); % voltage(s) of interest
+            addOptional(p, 'eventstart', 'currentdrop', checkEventStart); % what defines start of event
+            addOptional(p, 'voltagecheck', @(x) (isnumeric(x) & x>1)); % function to use to check if voltages are okay
+            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of filenames
+            addOptional(p, 'eventlogic', struct(), @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
+            addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
+            addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
+            addOptional(p, 'savefile', [], @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
+            
+            % parse
+            parse(p,varargin{:});
+            in = p.Results;
+        end
+        
+        function in = parsePlottingInputs(varargin)
+            % parse all inputs so all methods can use them easily
+            p = inputParser;
+            
+            % defaults and checks
+            defaultFilterFreq = 1000;
+            defaultSampleFreq = 5000;
+            checkFilterFreq = @(x) all([isnumeric(x), numel(x)==1, x>=10, x<=20000]);
+            
+            % getting next figure for default purposes
+            f = get(groot,'currentfigure');
+            if ~isempty(f)
+                defaultFigureNum = f.Number + 1;
+            else
+                defaultFigureNum = 1;
+            end
+            
+            checkPosNum = @(x) all([all(isnumeric(x)), all(x>=0)]);
+            
+            % set up the inputs
+            addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
+            addOptional(p, 'sample', defaultSampleFreq, checkFilterFreq); % (down-) sampling frequency
+            addOptional(p, 'threshold', 0.90, checkPosNum); % fraction of open pore event threshold
+            addOptional(p, 'voltage', [], @(x) all([all(isnumeric(x)), all(abs(x)>=1)])); % voltage(s) of interest
+            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of filenames
+            addOptional(p, 'title', 'Event scatter plot', @(x) ischar(x)); % title on plots
+            addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
+            addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
+            addOptional(p, 'inverted', false, @(x) islogical(x)); % scatter plots: inverted true plots \Delta I / I_0
+            addOptional(p, 'eventlogic', struct(), @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
+            addOptional(p, 'eventblockage', 'mean', @(x) any(cellfun(@(y) strcmp(x,y), {'mean','first','last'}))); % what to plot for blockage data
+            
+            % parse
+            parse(p,varargin{:});
+            in = p.Results;
+        end
+        
+        function metadata = inputMetadata()
+            % inputMetaData()
+            % prompts user to input file metadata which enables easier
+            % analysis later based on things like [KCl], temperature,
+            % [ATP], [ADPNP], and which pore was used.
+            % metadata is added to events that are found later.
+            
+            inpt = inputdlg({'Pore','Temperature','KCl molarity','ATP molarity','ADPNP molarity','Mg molarity'},'Input metadata',1,{'M2-MspA','25','1.0','0.002','0','0.002'});
+            pore = inpt{1};
+            values = cellfun(@(x) str2double(x), inpt(2:end));
+            
+            metadata.pore = pore;
+            metadata.temperature = values(1);
+            metadata.KCl_molarity = values(2);
+            metadata.ATP_molarity = values(3);
+            metadata.ADPNP_molarity = values(4);
+            metadata.Mg_molarity = values(5);
+            
+        end
+        
+        function f = finishPlot(f, event, showUpper, showTime, showFilter)
+            % do the things all plots get: annotation and sizing
+            try
+                str = [event.file(end-27:end-20), '\_', event.file(end-7:end-4)];
+            catch
+                str = event.file(1:end-4);
+            end
+            if showUpper
+                loc = [0.7 0.91 0 0];
+            else
+                loc = [0.7 0.25 0 0];
+            end
+            if showTime
+                str = [str  ' [' sprintf('%.3g',event.time(1)) '-' sprintf('%.3g',event.time(2)) ']s'];
+            end
+            if showFilter
+                str = [str  ' ' num2str(obj.in.filter) 'Hz'];
+            end
+            annotation('textbox', loc, 'String', str, 'FontSize', 20);
+            set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+        end
+        
+        function f = plotSingleEvent(event, sd, varargin)
+            % necessary inputs: events cell struct and SignalData
+            
+            % input handling
+            in = parsePlottingInputs(varargin{:});
+            
+            pad = max(2e-4/sd.si, event.duration/50/sd.si); % data points before and after
+            
+            f = figure;
+            d = obj.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
+            
+            % plot either in ms or s depending on scale of event
+            timefactor = 1;
+            if d(end,1)-d(1,1)<1.5
+                timefactor = 1000;
+            end
+            plot((d(:,1)-event.time(1))*timefactor,d(:,2)*in.currentscaling/event.open_pore_current_mean,'k')
+            
+            % if there are levels specified, show them
+            if isfield(event,'levels')
+                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
+                means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
+                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
+            end
+            
+            title('Event trace')
+            
+            if timefactor==1000
+                xlabel('Time (ms)')
+            else
+                xlabel('Time (s)')
+            end
+            ylabel('I / I_0')
+            ylim([0 1.1])
+            xlim([-Inf Inf])
+            
+            obj.finishPlot(f, event, true, true, true);
+            
+        end
+        
+    end
+    
+    methods % can be called directly by the user on a particular analysis object
         
         % constructor
         function obj = analysis(sigdata)
@@ -23,13 +890,27 @@ classdef analysis < handle
             
         end
         
+        function events = getEvents(obj, varargin)
+            % get events struct and return it using other functions
+            % optional inputs: trange, voltage, threshold, eventstart, mincond, maxcond
+            
+            % input handling
+            obj.parseObjectInputs(varargin{:});
+            obj.parsed = true;
+            
+            r = obj.findEventRegions();
+            events = obj.calculateEventStatistics(r);
+            
+        end
+        
         function [cond, cond_std] = getOpenPoreConductance(obj, varargin)
             % return open pore conductance
             % based on a histogram
             % optional inputs: trange, voltage, mincond, maxcond
             
             % input handling
-            obj.parseOptionalInputs(varargin{:});
+            obj.parseObjectInputs(varargin{:});
+            obj.parsed = true;
             
             % grab conductance trace
             [voltage_raw, current_raw] = obj.getViewData(obj.in.trange);
@@ -67,7 +948,8 @@ classdef analysis < handle
             % optional inputs: trange, voltagecheck function handle
             
             % input handling
-            obj.parseOptionalInputs(varargin{:});
+            obj.parseObjectInputs(varargin{:});
+            obj.parsed = true;
             
             % grab voltage trace
             d = obj.sigdata.getViewData(obj.in.trange);
@@ -85,15 +967,96 @@ classdef analysis < handle
             voltages = round(xv(inds));
         end
         
-        function regions = findEventRegions(obj, varargin)
+        function mol = getMolecules(obj, events)
+            % get the events which seem to be enzyme-driven molecules
+            % this is defined as: not ended manually, I/I_0 < 0.4 && > 0.05
+            % and duration > 1 sec
+            
+            % eventlogic
+            eventlogic = struct();
+            eventlogic.duration = @(x) x > 1;
+            eventlogic.ended_manually = @(x) x == false;
+            eventlogic.fractional_block_mean = @(x) x < 0.4 && x > 0.05;
+            
+            mol = events(obj.getLogic(events, 'eventlogic', eventlogic));
+        end
+        
+    end
+    
+    methods (Access = private) % only called by class methods
+        
+        function parseObjectInputs(obj, varargin)
+            % parse all inputs so all methods can use them easily
+            if obj.parsed == true
+                return;
+            end
+            p = inputParser;
+            
+            % defaults and checks
+            defaultFilterFreq = 1000;
+            defaultSampleFreq = 5000;
+            checkFilterFreq = @(x) all([isnumeric(x), numel(x)==1, x>=10, x<=20000]);
+            
+            defaultTimeRange = [obj.sigdata.tstart, obj.sigdata.tend]; % start and end of file
+            checkTimeRange = @(x) all([all(isnumeric(x)), numel(x)==2, x(1)<x(2), x(1)>=obj.sigdata.tstart, x(2)<=obj.sigdata.tend]);
+            
+            checkPosNum = @(x) all([all(isnumeric(x)), all(x>=0)]);
+            
+            checkEventStart = @(x) any([strcmp(x, 'voltagedrop'), strcmp(x, 'currentdrop')]);
+            
+            % set up the inputs
+            addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
+            addOptional(p, 'sample', defaultSampleFreq, checkFilterFreq); % (down-) sampling frequency
+            addOptional(p, 'trange', defaultTimeRange, checkTimeRange); % time range of interest
+            addOptional(p, 'mincond', 1.4, checkPosNum); % min open pore conductance
+            addOptional(p, 'maxcond', 3, checkPosNum); % max open pore conductance
+            addOptional(p, 'minduration', 1e-6, checkPosNum); % min event duration
+            addOptional(p, 'threshold', 0.90, checkPosNum); % fraction of open pore event threshold
+            addOptional(p, 'voltage', [], @(x) all([all(isnumeric(x)), all(abs(x)>=1)])); % voltage(s) of interest
+            addOptional(p, 'eventstart', 'currentdrop', checkEventStart); % what defines start of event
+            addOptional(p, 'voltagecheck', @(x) (isnumeric(x) & x>1)); % function to use to check if voltages are okay
+            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of filenames
+            addOptional(p, 'eventlogic', struct(), @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
+            addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
+            addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
+            addOptional(p, 'savefile', [], @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
+            
+            % parse
+            parse(p,varargin{:});
+            obj.in = p.Results;
+        end
+        
+        function [voltage, current] = getViewData(obj, trange)
+            % get the downsampled view data
+            
+            raw = obj.sigdata.getViewData(trange); % grab downsampled data
+            voltage = raw(:,3)*obj.in.voltagescaling;
+            current = raw(:,2)*obj.in.currentscaling;
+            
+        end
+        
+        function voltagelogic = findSpecifiedVoltageRegions(obj, trange, V)
+            % find regions of data with specified voltage(s)
+            
+            % grab downsampled voltage data
+            [voltage, ~] = obj.getViewData(trange);
+            
+            if isempty(V)
+                % no voltage(s) specified
+                voltagelogic = true(size(voltage));
+            else
+                % window of 2mV around any specified voltage of interest
+                voltagelogic = any(cell2mat(arrayfun(@(x) voltage>x-2 & voltage<x+2, V, 'uniformoutput', false)), 2);
+            end
+            
+        end
+        
+        function regions = findEventRegions(obj)
             % find events in data specified by user parameters
             % optional inputs: trange, voltage, threshold, eventstart, mincond, maxcond
             
-            % inputs
-            obj.parseOptionalInputs(varargin{:});
-            
             % get the open pore conductance
-            [g_m, g_s] = obj.getOpenPoreConductance(varargin{:});
+            [g_m, g_s] = obj.getOpenPoreConductance();
             
             % coarse event finding using a threshold
             [voltage, current] = obj.getViewData(obj.in.trange);
@@ -164,7 +1127,8 @@ classdef analysis < handle
                 % end should actually be when current starts to return
                 % to open pore
                 ending_bit = obj.sigdata.get(max(start_inds(i),end_inds_thresh-20):max(start_inds(i),end_inds_thresh-5),2) * obj.in.currentscaling;
-                V = mode(round(obj.voltage_view(max(1,possibleStartInds(i)):min(numel(obj.voltage_view),possibleEndInds(i))))); % estimate of this event's voltage
+                [voltage_view,~] = obj.getViewData(obj.in.trange);
+                V = mode(round(voltage_view(max(1,possibleStartInds(i)):min(numel(voltage_view),possibleEndInds(i))))); % estimate of this event's voltage
                 end_cond = abs(mean(ending_bit)/V);
                 %end_cond_std = std(ending_bit);
                 end_inds(i) = obj.sigdata.findPrev(@(x) x(:,2)*obj.in.currentscaling./(x(:,3)*obj.in.voltagescaling) < mean([end_cond, end_cond, end_cond, g_m * obj.in.threshold]), end_inds_thresh);
@@ -193,53 +1157,6 @@ classdef analysis < handle
             % get rid of events that are too short
             too_short = (end_inds-start_inds)*obj.sigdata.si < obj.in.minduration;
             regions = regions(~too_short,:);
-        end
-        
-        function showEventsInPoreView(obj, pv, events, how)
-            % showEventsInPoreView(pv, events, all_or_one)
-            % ex: obj.showEventsInPoreView([], event{1}, 'one');
-            % necessary inputs:
-            % PoreView object or []
-            % result of findEventRegions or calculateEventStatistics
-            % how (can be 'all' or 'one'). 'one' is for one-at-a-time, with
-            % pauses in between.
-            % plots the events in PoreView
-            
-            r = cell2mat(cellfun(@(x) x.index, events, 'uniformoutput', false));
-            if isempty(pv)
-                pv = pv_launch(events{1}.file);
-            end
-            
-            pv.clearAxes();
-            if strcmp(how,'all')
-                for i = 1:size(r,1)
-                    % use the y values for whatever signal is currently
-                    % plotted
-                    y(i,1) = pv.data.get(r(i,1),pv.psigs(1).sigs);
-                    y(i,2) = pv.data.get(r(i,2),pv.psigs(1).sigs);
-                end
-                plot(pv.psigs(1).axes, r(:,1)*pv.data.si,y(:,1),'go','MarkerSize',10)
-                plot(pv.psigs(1).axes, r(:,2)*pv.data.si,y(:,2),'rx','MarkerSize',10)
-            elseif strcmp(how,'one')
-                for i = 1:size(r,1)
-                    % if PoreView's SignalData is not current, update it
-                    if ~strcmp(pv.data.filename,events{i}.file)
-                        pv = pv.loadFile(events{i}.file);
-                    end
-                    % use the y values for whatever signal is currently
-                    % plotted
-                    pv.setView(max(0,sort(r(i,:)+[-100, 100])).*pv.data.si);
-                    plot(pv.psigs(1).axes, r(i,1)*pv.data.si, pv.data.get(r(i,1),pv.psigs(1).sigs),'go','MarkerSize',10)
-                    plot(pv.psigs(1).axes, r(i,2)*pv.data.si, pv.data.get(r(i,2),pv.psigs(1).sigs),'rx','MarkerSize',10)
-                    % if there are levels specified, show them
-                    if isfield(events{i},'levels')
-                        timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], events{i}.levels, 'uniformoutput', false));
-                        means = cellfun(@(x) x.current_mean, events{i}.levels) / obj.in.currentscaling; % pA back to initial data value
-                        plot(pv.psigs(1).axes, timing', (means*[1,1])', '-', 'LineWidth', 4, 'Color', 'k');
-                    end
-                    pause();
-                end
-            end
         end
         
         function events = calculateEventStatistics(obj, regions)
@@ -303,773 +1220,6 @@ classdef analysis < handle
             
         end
         
-        function events = getEvents(obj, varargin)
-            % get events struct and return it using other functions
-            % optional inputs: trange, voltage, threshold, eventstart, mincond, maxcond
-            
-            r = obj.findEventRegions(varargin{:});
-            events = obj.calculateEventStatistics(r);
-            
-        end
-        
-        function logic = getLogic(obj, events, varargin)
-            % generate a logical array of size events that says whether
-            % each event satisfies the criteria in varargin
-            % and the conditions in 'eventlogic' optional input field:
-            % eventlogic should be a struct with optional fields that match
-            % the names of fields in events, but which are logic operations
-            % which must all be true for getLogic to be true
-            
-            % input handling
-            obj.parseOptionalInputs(varargin{:});
-            obj.parsed = true;
-            
-            logic = cellfun(@(x) (isempty(obj.in.files) || any(strcmp(x.file,obj.in.files))) ... % check matching filename
-                && (isempty(obj.in.voltage) || any(round(x.voltage/5)*5 == round(obj.in.voltage))), events); % and matching voltage
-            
-            % get any extra conditionals from 'eventlogic' argument
-            if isempty(obj.in.eventlogic)
-                return;
-            end
-            fields = fieldnames(obj.in.eventlogic);
-            for i = 1:numel(fields)
-                % dynamic field name in eventlogic references function
-                % handle which gets passed the argument from events' same
-                % field.  this is done for all events.
-                condition = cellfun(@(x) obj.in.eventlogic.(fields{i})(x.(fields{i})), events);
-                logic = logic & condition; % each time update overall logic
-            end
-            
-        end
-        
-        function mol = getMolecules(obj, events)
-            % get the events which seem to be enzyme-driven molecules
-            % this is defined as: not ended manually, I/I_0 < 0.4 && > 0.05
-            % and duration > 1 sec
-            
-            % eventlogic
-            eventlogic = struct();
-            eventlogic.duration = @(x) x > 1;
-            eventlogic.ended_manually = @(x) x == false;
-            eventlogic.fractional_block_mean = @(x) x < 0.4 && x > 0.05;
-            obj.parsed = false; % let parser know it must re-parse inputs
-            
-            mol = events(obj.getLogic(events, 'eventlogic', eventlogic));
-        end
-        
-        function events = findEventLevels(obj, events, expectedLevelsPerSecond, falsePositivesPerSecond, varargin)
-        % perform level-finding on each event
-        % find the levels which are significant based on Kevin Karplus'
-        % algorithm. (falsePositivesPerSecond = 1e-4 is typical)
-            
-            % input handling
-            obj.parsed = false;
-            obj.parseOptionalInputs(varargin{:});
-            obj.parsed = true;
-            
-            % loop through each event
-            for i = 1:numel(events)
-                % make sure the right file is loaded
-                if ~strcmp(obj.sigdata.filename, events{i}.file)
-                    obj.sigdata = SignalData(events{i}.file);
-                end
-                % grab event data
-                pts = round(events{i}.duration * obj.in.filter * 5); % sample at five times filter frequency if possible
-                % if too many points, chunk it in the following way: divide
-                % a first pass coarse, then divide each of those
-                if pts>5e6
-                    true_filter = obj.in.filter;
-                    obj.in.filter = 100; % hijack this filter setting for now for downsampling
-                    data = obj.downsample_pointwise(events{i}.index, min(1e7,5*obj.in.filter*events{i}.duration));
-                    data = data(:,1:2);
-                    data(:,2) = data(:,2)*obj.in.currentscaling;
-                    % level find coarsely based on heavily downsampled data
-                    display('Large event... using iterative level finding ========')
-                    coarse_levels = karplus_levels(data, 1e-10, 1e-50, 10); % try to find only a few (empirical...)
-                    obj.in.filter = true_filter; % return to the real filter setting for fine-grain level finding
-                    levels = cell(0);
-                    for j = 1:numel(coarse_levels)
-                        % level find in each for real, and compile
-                        pts = round(coarse_levels{j}.duration / (1/(obj.in.filter*5))); % sample at five times filter frequency if possible
-                        data = obj.downsample_pointwise([coarse_levels{j}.start_time coarse_levels{j}.end_time]/obj.sigdata.si, pts);
-                        data = data(:,1:2);
-                        data(:,2) = data(:,2)*obj.in.currentscaling;
-                        newlevs = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, obj.in.filter);
-                        levels = [levels; newlevs];
-                    end
-                    display('=====================================================')
-                else
-                    data = obj.downsample_pointwise(events{i}.index, pts);
-                    data = data(:,1:2);
-                    data(:,2) = data(:,2)*obj.in.currentscaling;
-                    % level find
-                    levels = karplus_levels(data, expectedLevelsPerSecond, falsePositivesPerSecond, obj.in.filter);
-                end
-                % store level data in event struct
-                events{i}.levels = levels;
-                events{i}.level_finding.expectedLevelsPerSecond = expectedLevelsPerSecond;
-                events{i}.level_finding.falsePositivesPerSecond = falsePositivesPerSecond;
-                events{i}.level_finding.filter = obj.in.filter;
-            end
-            
-        end
-        
-        function events = do_iterative_scaling_alignment(obj, events)
-            % iterates between model scaling and level alignment until
-            % convergence is reached.  helps improve model scaling.
-            
-            % sequence
-            seq = 'RRRRRTTTTTRRRRGGTTGTTTCTGTTGGTGCTGATATTGCGGCGTCTGCTTGGGTGTTTAACCT'; % SK23
-            
-            for i = 1:numel(events)
-                
-                % get the initial predicted levels from oxford
-                events{i}.sequence = seq;
-                levs = cellfun(@(x) x.current_mean, events{i}.levels);
-                hicut = 0.6 * abs(events{i}.open_pore_current_mean);
-                lowcut = 0.05 * abs(events{i}.open_pore_current_mean);
-                [model_levels, model_levels_std] = ...
-                    get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
-                    abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
-%                 [model_levels, model_levels_std,~,~] = ...
-%                     get_model_levels_M2(events{i}.sequence, levs(levs>lowcut & levs<hicut));
-                
-                % save the initial scaling
-                events{i}.model_levels = cell(numel(model_levels),1);
-                for j = 1:numel(model_levels)
-                    events{i}.model_levels{j}.mean = model_levels(j);
-                    events{i}.model_levels{j}.stdev = model_levels_std(j);
-                end
-                
-                % iterate alignment and scaling until convergence is achieved
-                stop_criterion = 0.05;
-                lsqdist = [];
-                dfit = 1;
-                while dfit > stop_criterion && numel(lsqdist) < 20
-                    % do a level alignment
-                    events{i} = obj.do_level_alignment(events{i});
-                    % calculate least-squares distance per measured level
-                    logic = ~isnan(events{i}.level_alignment.model_levels_measured_mean_currents); % these levels are not missing
-                    lsqdist(end+1) = sum((events{i}.level_alignment.model_levels_measured_mean_currents(logic) ...
-                        - cellfun(@(x) x.mean, events{i}.model_levels(logic))).^2) / sum(logic);
-                    if numel(lsqdist)>1
-                        dfit = abs(lsqdist(end)-lsqdist(end-1));
-                    end
-                    if sum(logic)<2
-                        display('Cannot do iterative fitting, too far off.')
-                        break;
-                    end
-                    % do a least-squares fit
-                    f = fit(events{i}.level_alignment.model_levels_measured_mean_currents(logic), ...
-                        cellfun(@(x) x.mean, events{i}.model_levels(logic)), ...
-                        'poly1','Weights', ...
-                        events{i}.level_alignment.model_levels_measured_total_duration(logic), ...
-                        'Robust','bisquare');
-                    % invert to get the scale and offset corrections and update the
-                    % predicted levels
-                    for j = 1:numel(events{i}.model_levels)
-                        events{i}.model_levels{j}.mean = (events{i}.model_levels{j}.mean-f.p2)/f.p1;
-                        events{i}.model_levels{j}.stdev = events{i}.model_levels{j}.stdev/f.p1;
-                    end
-                end
-                
-                if numel(lsqdist)==20
-                    display('Iterative scaling alignment warning: convergence not reached in 20 iterations.')
-                end
-                
-            end
-            
-        end
-        
-        function event = do_level_alignment(obj, event)
-            % align the levels to the predicted model levels
-            % error if we are missing something
-            if ~isfield(event,'levels')
-                display('Error: could not align levels.  No levels extracted from the data!');
-                return;
-            end
-            if ~isfield(event,'model_levels')
-                display('Error: could not align levels.  No predicted sequence levels!');
-                return;
-            end
-            event.level_alignment = struct(); % clear any previous alignment
-            % get reasonable levels
-            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(cellfun(@(x) x.mean, event.model_levels), ...
-                cellfun(@(x) x.stdev, event.model_levels), cellfun(@(x) x.current_mean, event.levels), ...
-                cellfun(@(x) x.duration, event.levels), 0.18*abs(event.open_pore_current_mean));
-            event.level_alignment.model_level_assignment = mod_inds;
-            event.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
-            event.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
-            event.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2), ...
-                cellfun(@(x) x.duration, event.levels(mod_type~=2)), ...
-                size(event.model_levels),@sum,nan); % total time in each level
-            event.level_alignment.P = P; % probabilities in the alignment matrix
-            event.level_alignment.ks = ks; % state index in the alignment matrix
-            
-            % also store the level means and timing after alignment, by
-            % which i mean: combine adjacent "stay" levels
-            lmean = [];
-            lmed = [];
-            lstd = [];
-            ltime = [];
-            tmp = cellfun(@(x) x.current_mean, event.levels);
-            level_means_no_noise = tmp(mod_type==1);
-            tmp = cellfun(@(x) x.current_median, event.levels);
-            level_medians_no_noise = tmp(mod_type==1);
-            tmp = cellfun(@(x) x.current_std, event.levels);
-            level_stds_no_noise = tmp(mod_type==1);
-            tmp = cell2mat(cellfun(@(x) [x.start_time x.end_time], event.levels, 'uniformoutput', false));
-            level_timing_no_noise = tmp(mod_type==1,:);
-            mod_inds_no_noise = mod_inds(mod_type==1);
-            % go through each level
-            i = 1;
-            while i <= numel(mod_inds_no_noise)
-                % find the region of contiguous stay levels
-                last_contiguous_same_ind = find(mod_inds_no_noise(i+1:end) ~= mod_inds_no_noise(i),1,'first') + i - 1;
-                if isempty(last_contiguous_same_ind)
-                    last_contiguous_same_ind = i;
-                end
-                region = (1:numel(mod_inds_no_noise)) >= i & (1:numel(mod_inds_no_noise)) <= last_contiguous_same_ind;
-                % compute stats
-                durations = diff(level_timing_no_noise(region,:),1,2);
-                lmean(end+1) = sum(durations .* level_means_no_noise(region)) / sum(durations);
-                lmed(end+1) = sum(durations .* level_medians_no_noise(region)) / sum(durations);
-                lstd(end+1) = sum(durations .* level_stds_no_noise(region)) / sum(durations);
-                if size(ltime,1)<2
-                    ltime(end+1,:) = [level_timing_no_noise(i,1), level_timing_no_noise(last_contiguous_same_ind,2)];
-                else
-                    ltime(end+1,:) = [ltime(end,2), level_timing_no_noise(last_contiguous_same_ind,2)];
-                end
-                % update index location
-                i = last_contiguous_same_ind + 1;
-            end
-            % save the values in obj.alignment
-            event.level_alignment.level_means = lmean';
-            event.level_alignment.level_medians = lmed';
-            event.level_alignment.level_stds = lstd';
-            event.level_alignment.level_timing = ltime - ltime(1,1); % zero at beginning of molecule
-            
-        end
-        
-        function f = plotEventScatter(obj, events, varargin)
-            % necessary input: events cell struct, output of
-            % calculateEventStatistics
-            % optional input: title for plot
-            % plot a scatter plot of event mean fractional blockages versus
-            % durations
-            
-            % input handling
-            obj.parsed = false;
-            obj.parseOptionalInputs(varargin{:});
-            obj.parsed = true;
-            
-            % if user used 'eventlogic'
-            logic = obj.getLogic(events, 'eventlogic', obj.in.eventlogic);
-            
-            % if user explicitly entered files and voltages
-            logic2 = cellfun(@(x) (isempty(obj.in.files) || any(strcmp(x.file,obj.in.files))) ... % check matching filename
-                && (isempty(obj.in.voltage) || any(round(x.voltage/5)*5 == round(obj.in.voltage))), events); % and matching voltage
-            
-            % limit to these events
-            events = events(logic & logic2);
-            
-            % what to plot
-            switch obj.in.eventblockage
-                case 'mean'
-                    y = cellfun(@(x) x.fractional_block_mean, events);
-                case 'first'
-                    y = cellfun(@(x) x.levels{find(cellfun(@(y) y.duration>1e-3, x.levels),1,'first')}.current_mean / x.open_pore_current_mean, events);
-                case 'last'
-                    y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
-            end
-            
-            % plot
-            f = figure(obj.in.figure);
-            if obj.in.inverted == true
-                y = 1-y;
-            end
-            ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
-            sk23event = cellfun(@(x) x.current_std/x.open_pore_current_mean > 0.05 && x.duration > 1, events); % empirical approximation for real event
-            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'x','markersize',5,'color',obj.in.color)
-            hold on
-            plot(cellfun(@(x) x.duration, events(~ended_manually & sk23event))*1000, y(~ended_manually & sk23event),'.','markersize',25,'color','g')
-            plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',3,'color',obj.in.color)
-            set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
-            ylim([0 1])
-            xlim([1e-2 2e5])
-            title(obj.in.title)
-            xlabel('Duration (ms)')
-            if obj.in.inverted == false
-                ylabel('I / I_0');
-                try
-                    annotation('textbox', [0.7 0.9 0 0], 'String', ...
-                        char(unique(cellfun(@(x) [x.file(end-27:end-20), '\_', x.file(end-7:end-4)], events, 'uniformoutput', false))), ...
-                        'FontSize', 20);
-                catch ex
-                end
-            else
-                ylabel('\DeltaI / I_0');
-                try
-                    annotation('textbox', [0.7 0.25 0 0], 'String', ...
-                        char(unique(cellfun(@(x) [x.file(end-27:end-20), '\_', x.file(end-7:end-4)], events, 'uniformoutput', false))), ...
-                        'FontSize', 20);
-                catch ex
-                end
-            end
-        end
-        
-        function f = plotInteractiveEventScatter(obj, events, varargin)
-            % necessary input: events cell struct, output of
-            % calculateEventStatistics
-            % optional input: title for plot, inverted
-            % plot a scatter plot of event mean fractional blockages versus
-            % durations that you can click on, and will plot individuals
-            
-            % input handling
-            obj.parsed = false;
-            obj.parseOptionalInputs(varargin{:});
-            obj.parsed = true;
-            
-            % if user used 'eventlogic'
-            logic = obj.getLogic(events, 'eventlogic', obj.in.eventlogic);
-            
-            % if user explicitly entered files and voltages
-            logic2 = cellfun(@(x) (isempty(obj.in.files) || any(strcmp(x.file,obj.in.files))) ... % check matching filename
-                && (isempty(obj.in.voltage) || any(round(x.voltage/5)*5 == round(obj.in.voltage))), events); % and matching voltage
-            
-            % limit to these events
-            events = events(logic & logic2);
-            
-            % what to plot
-            switch obj.in.eventblockage
-                case 'mean'
-                    y = cellfun(@(x) x.fractional_block_mean, events);
-                case 'first'
-                    y = cellfun(@(x) x.levels{find(cellfun(@(y) y.duration>1e-3, x.levels),1,'first')}.current_mean / x.open_pore_current_mean, events);
-                case 'last'
-                    y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
-            end
-            ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
-            duration = cellfun(@(x) x.duration, events)*1000;
-            
-            % plot
-            f = figure(obj.in.figure);
-            if obj.in.inverted == true
-                y = 1-y;
-            end
-            
-            for i = 1:numel(events)
-                if ended_manually(i)
-                    dot = plot(duration(i), y(i), 'rx','markersize',5);
-                else
-                    dot = plot(duration(i), y(i), 'o','markersize',3,'color',obj.in.color);
-                end
-                set(dot,'ButtonDownFcn',@(~,~) obj.plotEvent(events, i));
-                hold on
-            end
-            set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
-            ylim([0 1])
-            title('Interactive event scatter plot')
-            xlabel('Duration (ms)')
-            if obj.in.inverted == false
-                ylabel('I / I_0');
-            else
-                ylabel('\DeltaI / I_0');
-            end
-            box on
-            
-        end
-        
-        function f = plotInteractiveEventScatter3(obj, events, varargin)
-            % necessary input: events cell struct, output of
-            % calculateEventStatistics
-            % optional input: figure, color
-            % plot a scatter plot of event mean fractional blockages versus
-            % durations that you can click on, and will plot individuals
-            % plots I/I0, Irange/I0, and duration
-            
-            % input handling
-            obj.parsed = false;
-            obj.parseOptionalInputs(varargin{:});
-            obj.parsed = true;
-            
-            % if user used 'eventlogic'
-            logic = obj.getLogic(events, 'eventlogic', obj.in.eventlogic);
-            
-            % if user explicitly entered files and voltages
-            logic2 = cellfun(@(x) (isempty(obj.in.files) || any(strcmp(x.file,obj.in.files))) ... % check matching filename
-                && (isempty(obj.in.voltage) || any(round(x.voltage/5)*5 == round(obj.in.voltage))), events); % and matching voltage
-            
-            % limit to these events
-            events = events(logic & logic2);
-            
-            % plot
-            f = figure(obj.in.figure);
-            for i = 1:numel(events)
-                try
-%                     if isfield(events{i},'current_range')
-%                         rng = events{i}.current_range;
-%                     else
-%                         pad = min(diff(events{i}.index)/2-1,20);
-%                         d = obj.downsample_pointwise(events{i}.index+[pad,-1*pad],1000);
-%                         %stdv = std(d(:,2)*obj.in.currentscaling);
-%                         current = d(:,2)*obj.in.currentscaling;
-%                         current = current(current < in.threshold * events{i}.open_pore_current_mean);
-%                         rng = range(current);
-%                     end
-                    rng = events{i}.current_std;
-                    %rng = diff(events{i}.current_range);
-                    if obj.in.inverted == true
-                        y = 1 - events{i}.fractional_block_mean;
-                    else
-                        y = events{i}.fractional_block_mean;
-                    end
-                    if isfield(events{i},'ended_manually')
-                        if events{i}.ended_manually
-                            dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
-                                events{i}.duration*1000, 'x', 'Color', 'r', 'markersize', 5);
-                        else
-                            dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
-                                events{i}.duration*1000, 'o', 'Color', obj.in.color, 'markersize', 3);
-                        end
-                    else
-                        dot = plot3(y, rng/events{i}.open_pore_current_mean, ...
-                            events{i}.duration*1000, 'o', 'Color', obj.in.color, 'markersize', 3);
-                    end
-%                     if rng/events{i}.open_pore_current_mean > 1
-%                         pause();
-%                     end
-                    set(dot,'ButtonDownFcn',@(~,~) obj.plotEvent(events, i));
-                    hold on
-                catch ex
-                    disp(['Unable to plot event ' num2str(i)])
-                end
-            end
-            set(gca,'zscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
-            xlim([0 1])
-            %ylim([0 1])
-            title('Interactive event scatter plot')
-            zlabel('Duration (ms)')
-            if obj.in.inverted == false
-                xlabel('I / I_0');
-            else
-                xlabel('\DeltaI / I_0');
-            end
-            ylabel('I_s_t_d / I_0')
-            grid on
-            
-        end
-        
-        function f = plotEvent(obj, events, i, varargin)
-            % necessary inputs: events cell struct, output of
-            % calculateEventStatistics, and event number of interest i
-            % plot event i
-            
-            % input handling
-            if numel(varargin)>1
-                obj.parsed = false;
-                obj.parseOptionalInputs(varargin{:});
-                obj.parsed = true;
-            end
-            
-            pad = max(2e-4/obj.sigdata.si, events{i}.duration/50/obj.sigdata.si); % data points before and after
-            
-            f = figure;
-            if ~strcmp(obj.sigdata.filename,events{i}.file)
-                obj.sigdata = SignalData(events{i}.file);
-            end
-            d = obj.downsample_pointwise(events{i}.index + [-1*pad, pad], 50000); % grab data
-            
-            % plot either in ms or s depending on scale of event
-            timefactor = 1;
-            if d(end,1)-d(1,1)<1.5
-                timefactor = 1000;
-            end
-            plot((d(:,1)-events{i}.time(1))*timefactor,d(:,2)*obj.in.currentscaling/events{i}.open_pore_current_mean,'k')
-            
-            % if there are levels specified, show them
-            if isfield(events{i},'levels')
-                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], events{i}.levels, 'uniformoutput', false));
-                means = cellfun(@(x) x.current_mean, events{i}.levels) / events{i}.open_pore_current_mean;
-                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
-            end
-            
-            set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
-            title(['Event number ' num2str(i)])
-            
-            if timefactor==1000
-                xlabel('Time (ms)')
-            else
-                xlabel('Time (s)')
-            end
-            ylabel('I / I_0')
-            ylim([0 1.1])
-            xlim([-Inf Inf])
-            
-            try
-                annotation('textbox', [0.7 0.25 0 0], 'String', ...
-                    [events{i}.file(end-27:end-20), '\_', events{i}.file(end-7:end-4) ' ' num2str(obj.in.filter) 'Hz'], ...
-                    'FontSize', 20);
-            catch
-                annotation('textbox', [0.8 0.93 0 0], 'String', ...
-                    [events{i}.file(1:end-4) ' ' num2str(obj.in.filter) 'Hz'], ... % just take off the suffix
-                    'FontSize', 20);
-            end
-            
-        end
-        
-        function f = plotEventSquiggle(obj, events, i, varargin)
-            % f = plotEventSquiggle(events, i, varargin)
-            % if an event has levels found, plot the squiggle data: current
-            % mean versus level number
-            
-            % input handling
-            if numel(varargin)>1
-                obj.parsed = false;
-                obj.parseOptionalInputs(varargin{:});
-                obj.parsed = true;
-            end
-            
-            f = figure;
-            means = cellfun(@(x) x.current_mean, events{i}.levels) / events{i}.open_pore_current_mean;
-            plot(1:numel(means),means,'o-','Color',obj.in.color)
-            
-            title(['Squiggle data: event number ' num2str(i)])
-            
-            ylabel('I (pA)')
-            xlabel('Level number')
-            xlim([0 numel(means)+1])
-            
-            f = obj.polishPlot(f, events{i}, true, true, false);
-
-        end
-        
-        function f = plotAlignment(obj, event)
-            % plot the alignment information
-            % if alignment hasn't been done, do it
-            if ~isfield(event.level_alignment,'model_level_assignment')
-                %obj.do_iterative_scaling_alignment;
-                display('Alignment not completed!')
-                return;
-            end
-            f = figure();
-            
-            mod_inds = event.level_alignment.model_level_assignment;
-            mod_type = event.level_alignment.level_type; % 1 is normal, 2 is noise, 3 is deep block
-            lvl_accum = event.level_alignment.model_levels_measured_mean_currents; % mean of level currents for each level assigned to a given model level
-            lvls = cellfun(@(x) x.current_mean, event.levels);
-            
-            subplot(3,1,1);
-            plot(cellfun(@(x) x.mean, event.model_levels),'o-','LineWidth',2)
-            hold on
-            plot(lvl_accum,'o-','LineWidth',2);
-            legend('Model','Data')
-            ylabel('Current (pA)')
-            xlabel('Model level')
-            xlim([0 find(~isnan(lvl_accum),1,'last')+1])
-            set(gca,'FontSize',20)
-            title('Best fit of data to model')
-            
-            subplot(3,1,2);
-            plot(abs(lvls))
-            for i=1:numel(lvls)
-                text(i,abs(lvls(i)),num2str(mod_inds(i)),'FontSize',14);
-            end
-            hold on
-            xx = 1:numel(event.levels);
-            plot(xx(mod_type==2),cellfun(@(x) x.current_mean, event.levels(mod_type==2)),'rx','MarkerSize',10)
-            plot(xx(mod_type==3),cellfun(@(x) x.current_mean, event.levels(mod_type==3)),'go','MarkerSize',10)
-            ylabel('Current (pA)')
-            xlabel('Measured level')
-            xlim([0 numel(lvls)+1])
-            set(gca,'FontSize',20)
-            title('Matching each measured level to a model state')
-            
-            subplot(3,1,3);
-            imagesc(1.03.^(event.level_alignment.P/2)) % scales so image shows up well
-            hold on
-            plot(1:numel(lvls),event.level_alignment.ks,'r','LineWidth',3);
-            title('Probability Matrix')
-            ylabel('State')
-            xlabel('Level Number')
-            set(gca,'FontSize',20)
-            
-        end
-        
-        function events = batch(obj, varargin)
-            % batch analysis
-            % needed input: files
-            % optional input: voltages
-            
-            % input handling
-            obj.parsed = false;
-            obj.parseOptionalInputs(varargin{:});
-            obj.parsed = true;
-            
-            display('Batch data analysis:')
-            
-            % choose time ranges of interest in each file
-            for i = 1:numel(obj.in.files)
-                if ishandle(1)
-                    close(1);
-                end
-                pv = PoreView(obj.in.files{i});
-                drawnow;
-                display('Set cursors to region of interest')
-                pause();
-                timeranges{i} = pv.getCursors();
-            end
-            
-            % do batch analysis
-            events = cell(0);
-            for i = 1:numel(obj.in.files)
-                events = [events; obj.batch_findEventsAndSave(obj.in.files{i}, timeranges{i}, obj.in.voltage, varargin{:})];
-            end
-        end
-        
-        function events = inputMetadata(obj, events)
-            % inputMetaData(events)
-            % allows user to input file metadata which enables easier
-            % analysis later based on things like [KCl], temperature,
-            % [ATP], [ADPNP], and which pore was used.
-            
-            inpt = inputdlg({'Pore','Temperature','KCl molarity','ATP molarity','ADPNP molarity','Mg molarity'},'Input metadata',1,{'M2-MspA','25','1.0','0.002','0','0.002'});
-            pore = inpt{1};
-            values = cellfun(@(x) str2double(x), inpt(2:end));
-            for i = 1:numel(events)
-                % tack on metadata
-                events{i}.pore = pore;
-                events{i}.temperature = values(1);
-                events{i}.KCl_molarity = values(2);
-                events{i}.ATP_molarity = values(3);
-                events{i}.ADPNP_molarity = values(4);
-                events{i}.Mg_molarity = values(5);
-            end
-            
-        end
-        
-        function save(obj, events, varargin)
-            % save the data
-            
-            % input handling
-            obj.parsed = false;
-            obj.parseOptionalInputs(varargin{:});
-            obj.parsed = true;
-            
-            % saving
-            if isempty(events)
-                display('No events found')
-            else
-                try
-                    if isempty(obj.in.savefile)
-                        
-                        savefile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-4) '_events.mat'];
-                        % make directory if it doesn't exist
-                        if exist(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)],'dir')==0
-                            mkdir(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)]);
-                        end
-                        save(savefile,'events'); % save data
-                    else
-                        savefile = obj.in.savefile;
-                        save(savefile,'events'); % save data
-                    end
-                    display(['Saved event data in ' savefile])
-                catch ex
-                    display('Trouble saving to specified directory')
-                end
-            end
-        end
-        
-    end
-    
-    methods (Access = private)
-        
-        function parseOptionalInputs(obj, varargin)
-            % parse all inputs so all methods can use them easily
-            if obj.parsed == true
-                return;
-            end
-            p = inputParser;
-            
-            % defaults and checks
-            defaultFilterFreq = 1000;
-            defaultSampleFreq = 5000;
-            checkFilterFreq = @(x) all([isnumeric(x), numel(x)==1, x>=10, x<=20000]);
-            
-            defaultTimeRange = [obj.sigdata.tstart, obj.sigdata.tend]; % start and end of file
-            checkTimeRange = @(x) all([all(isnumeric(x)), numel(x)==2, x(1)<x(2), x(1)>=obj.sigdata.tstart, x(2)<=obj.sigdata.tend]);
-            
-            % getting next figure for default purposes
-            f = get(groot,'currentfigure');
-            if ~isempty(f)
-                defaultFigureNum = f.Number + 1;
-            else
-                defaultFigureNum = 1;
-            end
-            
-            checkPosNum = @(x) all([all(isnumeric(x)), all(x>=0)]);
-            
-            checkEventStart = @(x) any([strcmp(x, 'voltagedrop'), strcmp(x, 'currentdrop')]);
-            
-            % set up the inputs
-            addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
-            addOptional(p, 'sample', defaultSampleFreq, checkFilterFreq); % (down-) sampling frequency
-            addOptional(p, 'trange', defaultTimeRange, checkTimeRange); % time range of interest
-            addOptional(p, 'mincond', 1.4, checkPosNum); % min open pore conductance
-            addOptional(p, 'maxcond', 3, checkPosNum); % max open pore conductance
-            addOptional(p, 'minduration', 1e-6, checkPosNum); % min event duration
-            addOptional(p, 'threshold', 0.90, checkPosNum); % fraction of open pore event threshold
-            addOptional(p, 'voltage', [], @(x) all([all(isnumeric(x)), all(abs(x)>=1)])); % voltage(s) of interest
-            addOptional(p, 'eventstart', 'currentdrop', checkEventStart); % what defines start of event
-            addOptional(p, 'voltagecheck', @(x) (isnumeric(x) & x>1)); % function to use to check if voltages are okay
-            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of filenames
-            addOptional(p, 'title', 'Event scatter plot', @(x) ischar(x)); % title on plots
-            addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
-            addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
-            addOptional(p, 'inverted', false, @(x) islogical(x)); % scatter plots: inverted true plots \Delta I / I_0
-            addOptional(p, 'eventlogic', struct(), @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
-            addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
-            addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
-            addOptional(p, 'savefile', [], @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
-            addOptional(p, 'eventblockage', 'mean', @(x) any(cellfun(@(y) strcmp(x,y), {'mean','first','last'}))); % what to plot for blockage data
-            
-            % parse
-            parse(p,varargin{:});
-            obj.in = p.Results;
-        end
-        
-        function [voltage, current] = getViewData(obj, trange)
-            % get the downsampled view data
-            % only go back to file if we haven't done this already
-            
-            if any([numel(obj.voltage_view)==1, numel(obj.current_view)==1, all(trange ~= obj.tr)])
-                raw = obj.sigdata.getViewData(trange); % grab downsampled data
-                obj.voltage_view = raw(:,3)*obj.in.voltagescaling;
-                obj.current_view = raw(:,2)*obj.in.currentscaling;
-                obj.tr = trange;
-            end
-            
-            voltage = obj.voltage_view;
-            current = obj.current_view;
-            
-        end
-        
-        function voltagelogic = findSpecifiedVoltageRegions(obj, trange, V)
-            % find regions of data with specified voltage(s)
-            
-            % grab downsampled voltage data
-            [voltage, ~] = obj.getViewData(trange);
-            
-            if isempty(V)
-                % no voltage(s) specified
-                voltagelogic = true(size(voltage));
-            else
-                % window of 2mV around any specified voltage of interest
-                voltagelogic = any(cell2mat(arrayfun(@(x) voltage>x-2 & voltage<x+2, V, 'uniformoutput', false)), 2);
-            end
-            
-        end
-        
         function d = downsample_pointwise(obj, inds, pts)
             %DOWNSAMPLE_POINTWISE does a pointwise downsampling, returning ABOUT 'pts' points
             % downsample data in chunks of 2^20
@@ -1125,49 +1275,16 @@ classdef analysis < handle
             end
         end
         
-        function events = batch_findEventsAndSave(obj, file, trange, voltage, varargin)
-            % to be called from obj.batch with a given file
-            disp(file)
-            a = analysis(SignalData(file)); % new object
-            vs = voltage;
-            if isempty(vs)
-                if isempty(trange)
-                    vs = a.getAppliedVoltages(varargin{:});
-                    events = a.getEvents('threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
-                else
-                    vs = a.getAppliedVoltages('trange', trange, varargin{:});
-                    events = a.getEvents('trange',trange,'threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
-                end
-            else
-                if isempty(trange)
-                    events = a.getEvents('threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
-                else
-                    events = a.getEvents('trange',trange,'threshold',0.90,'eventstart','currentdrop','voltage',vs,varargin{:}); % do event finding
-                end
+        function events = findEventsAndSave(obj)
+            % called by static method 'batch' on a particular analysis
+            % object
+            disp(obj.in.files)
+            if isempty(obj.in.voltage)
+                obj.in.voltage = a.getAppliedVoltages();
             end
+            events = obj.getEvents(obj.in.trange); % do event finding
+            events = obj.attachMetadata(events, obj.metadata); % metadata
             obj.save(events);
-        end
-        
-        function f = polishPlot(obj, f, event, showUpper, showTime, showFilter)
-            % do the things all plots get: annotation and sizing
-            try
-                str = [event.file(end-27:end-20), '\_', event.file(end-7:end-4)];
-            catch
-                str = event.file(1:end-4);
-            end
-            if showUpper
-                loc = [0.7 0.91 0 0];
-            else
-                loc = [0.7 0.25 0 0];
-            end
-            if showTime
-                str = [str  ' [' sprintf('%.3g',event.time(1)) '-' sprintf('%.3g',event.time(2)) ']s'];
-            end
-            if showFilter
-                str = [str  ' ' num2str(obj.in.filter) 'Hz'];
-            end
-            annotation('textbox', loc, 'String', str, 'FontSize', 20);
-            set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
         end
         
     end
