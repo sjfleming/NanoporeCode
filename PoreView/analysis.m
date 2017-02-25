@@ -30,7 +30,7 @@ classdef analysis < handle
             % optional inputs: voltages, event threshold, open pore limits
             
             % input handling
-            in = analysis.parseAnalysisInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             display('Batch data analysis:')
             
@@ -99,7 +99,7 @@ classdef analysis < handle
             % which must all be true for getLogic to be true
             
             % input handling
-            in = parseAnalysisInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             logic = cellfun(@(x) (isempty(in.files) || any(strcmp(x.file,in.files))) ... % check matching filename
                 && (isempty(in.voltage) || any(round(x.voltage/5)*5 == round(in.voltage))), events); % and matching voltage
@@ -125,7 +125,7 @@ classdef analysis < handle
         % algorithm. (falsePositivesPerSecond = 1e-4 is typical)
             
             % input handling
-            in = parseAnalysisInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             % loop through each event
             for i = 1:numel(events)
@@ -368,10 +368,10 @@ classdef analysis < handle
             % durations
             
             % input handling
-            in = parsePlottingInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             % get logical array for which events are specified
-            logic = obj.getLogic(events, varargin{:});
+            logic = analysis.getLogic(events, varargin{:});
             
             % limit to these events
             events = events(logic);
@@ -429,10 +429,10 @@ classdef analysis < handle
             % durations that you can click on, and will plot individuals
             
             % input handling
-            in = parsePlottingInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             % if user used 'eventlogic'
-            logic = obj.getLogic(events, varargin{:});
+            logic = analysis.getLogic(events, varargin{:});
             
             % limit to these events
             events = events(logic);
@@ -492,10 +492,10 @@ classdef analysis < handle
             % plots I/I0, Irange/I0, and duration
             
             % input handling
-            in = parsePlottingInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             % if user used 'eventlogic'
-            logic = obj.getLogic(events, varargin{:});
+            logic = analysis.getLogic(events, varargin{:});
             
             % limit to these events
             events = events(logic);
@@ -563,16 +563,16 @@ classdef analysis < handle
             % optional: filter, color, current scaling, sampling, etc.
             % returns figure handle
             
+            % create an analysis object for obtaining the event data
+            a = analysis(SignalData(event.file));
+            
             % input handling
-            in = parsePlottingInputs(varargin{:});
+            a.parseObjectInputs(varargin{:});
             
-            % create SignalData for obtaining the event data
-            sd = SignalData(event.file);
-            
-            pad = max(2e-4/sd.si, event.duration/50/sd.si); % data points before and after
+            pad = max(2e-4/a.sigdata.si, event.duration/50/a.sigdata.si); % data points before and after
             
             f = in.figure;
-            d = obj.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
+            d = a.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
             
             % plot either in ms or s depending on scale of event
             timefactor = 1;
@@ -599,7 +599,7 @@ classdef analysis < handle
             ylim([0 1.1])
             xlim([-Inf Inf])
             
-            obj.finishPlot(f, event, true, true, true);
+            analysis.finishPlot(f, event, true, true, true);
             
         end
         
@@ -609,7 +609,7 @@ classdef analysis < handle
             % mean versus level number.  return figure handle f.
             
             % input handling
-            in = parsePlottingInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             f = in.figure;
             means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
@@ -640,7 +640,7 @@ classdef analysis < handle
             end
             
             % input handling
-            in = parsePlottingInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             f = in.figure();
             
@@ -692,7 +692,7 @@ classdef analysis < handle
             % save the data
             
             % input handling
-            in = analysis.parseAnalysisInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             % saving
             if isempty(events)
@@ -720,7 +720,7 @@ classdef analysis < handle
     
     methods (Static, Access = private) % called outside an object, but not by a user directly
         
-        function in = parseAnalysisInputs(varargin)
+        function in = parseInputs(varargin)
             % parse all inputs so all methods can use them easily
             p = inputParser;
             
@@ -735,6 +735,14 @@ classdef analysis < handle
             checkPosNum = @(x) all([all(isnumeric(x)), all(x>=0)]);
             
             checkEventStart = @(x) any([strcmp(x, 'voltagedrop'), strcmp(x, 'currentdrop')]);
+            
+            % getting next figure for default purposes
+            f = get(groot,'currentfigure');
+            if ~isempty(f)
+                defaultFigureNum = f.Number + 1;
+            else
+                defaultFigureNum = 1;
+            end
             
             % set up the inputs
             addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
@@ -752,42 +760,10 @@ classdef analysis < handle
             addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
             addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
             addOptional(p, 'savefile', [], @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
-            
-            % parse
-            parse(p,varargin{:});
-            in = p.Results;
-        end
-        
-        function in = parsePlottingInputs(varargin)
-            % parse all inputs so all methods can use them easily
-            p = inputParser;
-            
-            % defaults and checks
-            defaultFilterFreq = 1000;
-            defaultSampleFreq = 5000;
-            checkFilterFreq = @(x) all([isnumeric(x), numel(x)==1, x>=10, x<=20000]);
-            
-            % getting next figure for default purposes
-            f = get(groot,'currentfigure');
-            if ~isempty(f)
-                defaultFigureNum = f.Number + 1;
-            else
-                defaultFigureNum = 1;
-            end
-            
-            checkPosNum = @(x) all([all(isnumeric(x)), all(x>=0)]);
-            
-            % set up the inputs
-            addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
-            addOptional(p, 'sample', defaultSampleFreq, checkFilterFreq); % (down-) sampling frequency
-            addOptional(p, 'threshold', 0.90, checkPosNum); % fraction of open pore event threshold
-            addOptional(p, 'voltage', [], @(x) all([all(isnumeric(x)), all(abs(x)>=1)])); % voltage(s) of interest
-            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of filenames
             addOptional(p, 'title', 'Event scatter plot', @(x) ischar(x)); % title on plots
             addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
             addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
             addOptional(p, 'inverted', false, @(x) islogical(x)); % scatter plots: inverted true plots \Delta I / I_0
-            addOptional(p, 'eventlogic', struct(), @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
             addOptional(p, 'eventblockage', 'mean', @(x) any(cellfun(@(y) strcmp(x,y), {'mean','first','last'}))); % what to plot for blockage data
             
             % parse
@@ -841,7 +817,7 @@ classdef analysis < handle
             % necessary inputs: events cell struct and SignalData
             
             % input handling
-            in = parsePlottingInputs(varargin{:});
+            in = analysis.parseInputs(varargin{:});
             
             pad = max(2e-4/sd.si, event.duration/50/sd.si); % data points before and after
             
