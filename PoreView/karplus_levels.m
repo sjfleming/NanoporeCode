@@ -13,7 +13,7 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
         
         warning('off','MATLAB:colon:nonIntegerIndex'); % turn off warning since fminbnd uses non-integer indices
         options = optimset('TolX',1);
-        [possible_transition_index, min_prob] = fminbnd(@(x) log_posterior_odds(x,ind1,ind2), ind1, ind2, options);
+        [possible_transition_index, min_prob] = fminbnd(@(x) log_posterior_odds(x,ind1,ind2), ind1+minpts, ind2-minpts, options);
         
         if min_prob < p
             % this index is a real transition, save it and recursively look
@@ -21,10 +21,10 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
             level_transition_indices(a) = possible_transition_index;
             a = a+1;
             fprintf('.');
-            if possible_transition_index-ind1 > minpts
+            if possible_transition_index-ind1 > 2 * minpts
                 level_search(ind1,possible_transition_index);
             end
-            if ind2-possible_transition_index > minpts
+            if ind2-possible_transition_index > 2 * minpts
                 level_search(possible_transition_index,ind2);
             end
         end

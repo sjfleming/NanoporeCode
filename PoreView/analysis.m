@@ -90,6 +90,20 @@ classdef analysis < handle
         
         % further event analysis: level finding, alignment, etc.
         
+        function mol = getMolecules(events)
+            % get the events which seem to be enzyme-driven molecules
+            % this is defined as: not ended manually, I/I_0 < 0.4 && > 0.05
+            % and duration > 1 sec
+            
+            % eventlogic
+            eventlogic = struct();
+            eventlogic.duration = @(x) x > 1;
+            eventlogic.ended_manually = @(x) x == false;
+            eventlogic.fractional_block_mean = @(x) x < 0.4 && x > 0.05;
+            
+            mol = events(analysis.getLogic(events, 'eventlogic', eventlogic));
+        end
+        
         function logic = getLogic(events, varargin)
             % generate a logical array of size events that says whether
             % each event satisfies the criteria in varargin
@@ -127,11 +141,18 @@ classdef analysis < handle
             % input handling
             in = analysis.parseInputs(varargin{:});
             
+            % create an object
+            a = analysis(SignalData(events{1}.file));
+            a.in = in;
+            a.parsed = true;
+            
             % loop through each event
             for i = 1:numel(events)
                 % make sure the right file is loaded
-                if ~strcmp(obj.sigdata.filename, events{i}.file)
-                    obj.sigdata = SignalData(events{i}.file);
+                if ~strcmp(a.sigdata.filename, events{i}.file)
+                    a = analysis(SignalData(events{i}.file)); % new object
+                    a.in = in;
+                    a.parsed = true;
                 end
                 % grab event data
                 pts = round(events{i}.duration * in.filter * 5); % sample at five times filter frequency if possible
@@ -139,14 +160,14 @@ classdef analysis < handle
                 % a first pass coarse, then divide each of those
                 if pts>5e6
                     true_filter = in.filter;
-                    in.filter = 100; % hijack this filter setting for now for downsampling
-                    data = obj.downsample_pointwise(events{i}.index, min(1e7,5*obj.in.filter*events{i}.duration));
+                    a.in.filter = 100; % hijack this filter setting for now for downsampling
+                    data = a.downsample_pointwise(events{i}.index, min(1e7,5*a.in.filter*events{i}.duration));
                     data = data(:,1:2);
                     data(:,2) = data(:,2)*in.currentscaling;
                     % level find coarsely based on heavily downsampled data
                     display('Large event... using iterative level finding ========')
                     coarse_levels = karplus_levels(data, 1e-10, 1e-50, 10); % try to find only a few (empirical...)
-                    obj.in.filter = true_filter; % return to the real filter setting for fine-grain level finding
+                    a.in.filter = true_filter; % return to the real filter setting for fine-grain level finding
                     levels = cell(0);
                     for j = 1:numel(coarse_levels)
                         % level find in each for real, and compile
@@ -159,7 +180,7 @@ classdef analysis < handle
                     end
                     display('=====================================================')
                 else
-                    data = obj.downsample_pointwise(events{i}.index, pts);
+                    data = a.downsample_pointwise(events{i}.index, pts);
                     data = data(:,1:2);
                     data(:,2) = data(:,2)*in.currentscaling;
                     % level find
@@ -352,7 +373,7 @@ classdef analysis < handle
                     % if there are levels specified, show them
                     if isfield(events{i},'levels')
                         timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], events{i}.levels, 'uniformoutput', false));
-                        means = cellfun(@(x) x.current_mean, events{i}.levels) / obj.in.currentscaling; % pA back to initial data value
+                        means = cellfun(@(x) x.current_mean, events{i}.levels) / 1000; % pA back to initial data value
                         plot(pv.psigs(1).axes, timing', (means*[1,1])', '-', 'LineWidth', 4, 'Color', 'k');
                     end
                     pause();
@@ -455,11 +476,13 @@ classdef analysis < handle
                 y = 1-y;
             end
             
-            sd = SignalData(events{1});
+            sd = SignalData(events{1}.file);
+            a = analysis(sd);
             for i = 1:numel(events)
                 % load SignalData
                 if ~strcmp(sd.filename,events{i}.file)
                     sd = SignalData(events{i}.file);
+                    a = analysis(sd);
                 end
                 % plot
                 if ended_manually(i)
@@ -467,7 +490,7 @@ classdef analysis < handle
                 else
                     dot = plot(duration(i), y(i), 'o','markersize',3,'color',in.color);
                 end
-                set(dot,'ButtonDownFcn',@(~,~) obj.plotSingleEvent(events{i},sd,varargin{:}));
+                set(dot,'ButtonDownFcn',@(~,~) a.plotSingleEvent(events{i},varargin{:}));
                 hold on
             end
             set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
@@ -565,41 +588,7 @@ classdef analysis < handle
             
             % create an analysis object for obtaining the event data
             a = analysis(SignalData(event.file));
-            
-            % input handling
-            a.parseObjectInputs(varargin{:});
-            
-            pad = max(2e-4/a.sigdata.si, event.duration/50/a.sigdata.si); % data points before and after
-            
-            f = in.figure;
-            d = a.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
-            
-            % plot either in ms or s depending on scale of event
-            timefactor = 1;
-            if d(end,1)-d(1,1)<1.5
-                timefactor = 1000;
-            end
-            plot((d(:,1)-event.time(1))*timefactor,d(:,2)*in.currentscaling/event.open_pore_current_mean,'k')
-            
-            % if there are levels specified, show them
-            if isfield(event,'levels')
-                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
-                means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
-                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
-            end
-            
-            title('Event trace')
-            
-            if timefactor==1000
-                xlabel('Time (ms)')
-            else
-                xlabel('Time (s)')
-            end
-            ylabel('I / I_0')
-            ylim([0 1.1])
-            xlim([-Inf Inf])
-            
-            analysis.finishPlot(f, event, true, true, true);
+            f = a.plotSingleEvent(event, varargin{:});
             
         end
         
@@ -625,7 +614,7 @@ classdef analysis < handle
             xlabel('Level number')
             xlim([0 numel(means)+1])
             
-            f = obj.finishPlot(f, event, true, true, false);
+            f = analysis.finishPlot(f, event, true, true, false);
 
         end
         
@@ -711,7 +700,7 @@ classdef analysis < handle
                     save(savefile,'events'); % save data
                     display(['Saved event data in ' savefile])
                 catch ex
-                    display('Trouble saving to specified directory')
+                    display(['Trouble saving to specified directory ' savefile])
                 end
             end
         end
@@ -739,7 +728,11 @@ classdef analysis < handle
             % getting next figure for default purposes
             f = get(groot,'currentfigure');
             if ~isempty(f)
-                defaultFigureNum = f.Number + 1;
+                a = f.Number;
+                while ishandle(a)
+                    a = a+1;
+                end
+                defaultFigureNum = a;
             else
                 defaultFigureNum = 1;
             end
@@ -791,7 +784,7 @@ classdef analysis < handle
             
         end
         
-        function f = finishPlot(f, event, showUpper, showTime, showFilter)
+        function f = finishPlot(f, event, showUpper, showTime, showFilter, filter)
             % do the things all plots get: annotation and sizing
             try
                 str = [event.file(end-27:end-20), '\_', event.file(end-7:end-4)];
@@ -807,50 +800,10 @@ classdef analysis < handle
                 str = [str  ' [' sprintf('%.3g',event.time(1)) '-' sprintf('%.3g',event.time(2)) ']s'];
             end
             if showFilter
-                str = [str  ' ' num2str(obj.in.filter) 'Hz'];
+                str = [str  ' ' num2str(filter) 'Hz'];
             end
             annotation('textbox', loc, 'String', str, 'FontSize', 20);
             set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
-        end
-        
-        function f = plotSingleEvent(event, sd, varargin)
-            % necessary inputs: events cell struct and SignalData
-            
-            % input handling
-            in = analysis.parseInputs(varargin{:});
-            
-            pad = max(2e-4/sd.si, event.duration/50/sd.si); % data points before and after
-            
-            f = figure;
-            d = obj.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
-            
-            % plot either in ms or s depending on scale of event
-            timefactor = 1;
-            if d(end,1)-d(1,1)<1.5
-                timefactor = 1000;
-            end
-            plot((d(:,1)-event.time(1))*timefactor,d(:,2)*in.currentscaling/event.open_pore_current_mean,'k')
-            
-            % if there are levels specified, show them
-            if isfield(event,'levels')
-                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
-                means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
-                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
-            end
-            
-            title('Event trace')
-            
-            if timefactor==1000
-                xlabel('Time (ms)')
-            else
-                xlabel('Time (s)')
-            end
-            ylabel('I / I_0')
-            ylim([0 1.1])
-            xlim([-Inf Inf])
-            
-            obj.finishPlot(f, event, true, true, true);
-            
         end
         
     end
@@ -872,7 +825,6 @@ classdef analysis < handle
             
             % input handling
             obj.parseObjectInputs(varargin{:});
-            obj.parsed = true;
             
             r = obj.findEventRegions();
             events = obj.calculateEventStatistics(r);
@@ -886,7 +838,6 @@ classdef analysis < handle
             
             % input handling
             obj.parseObjectInputs(varargin{:});
-            obj.parsed = true;
             
             % grab conductance trace
             [voltage_raw, current_raw] = obj.getViewData(obj.in.trange);
@@ -925,7 +876,6 @@ classdef analysis < handle
             
             % input handling
             obj.parseObjectInputs(varargin{:});
-            obj.parsed = true;
             
             % grab voltage trace
             d = obj.sigdata.getViewData(obj.in.trange);
@@ -943,18 +893,59 @@ classdef analysis < handle
             voltages = round(xv(inds));
         end
         
-        function mol = getMolecules(obj, events)
-            % get the events which seem to be enzyme-driven molecules
-            % this is defined as: not ended manually, I/I_0 < 0.4 && > 0.05
-            % and duration > 1 sec
+        function f = plotSingleEvent(obj, event, varargin)
+            % f = plotSingleEvent(event, 'optional_inputs'...)
+            % necessary inputs: event cell struct
+            % optional: filter, color, current scaling, sampling, etc.
+            % returns figure handle
             
-            % eventlogic
-            eventlogic = struct();
-            eventlogic.duration = @(x) x > 1;
-            eventlogic.ended_manually = @(x) x == false;
-            eventlogic.fractional_block_mean = @(x) x < 0.4 && x > 0.05;
+            % input handling
+            obj.parseObjectInputs(varargin{:});
             
-            mol = events(obj.getLogic(events, 'eventlogic', eventlogic));
+            % get next figure
+            cf = get(groot,'currentfigure');
+            if ~isempty(cf)
+                a = cf.Number;
+                while ishandle(a)
+                    a = a+1;
+                end
+                figureNum = a;
+            else
+                figureNum = 1;
+            end
+            f = figure(figureNum);
+            
+            pad = max(2e-4/obj.sigdata.si, event.duration/50/obj.sigdata.si); % data points before and after
+            
+            d = obj.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
+            
+            % plot either in ms or s depending on scale of event
+            timefactor = 1;
+            if d(end,1)-d(1,1)<1.5
+                timefactor = 1000;
+            end
+            plot((d(:,1)-event.time(1))*timefactor,d(:,2)*obj.in.currentscaling/event.open_pore_current_mean,'k')
+            
+            % if there are levels specified, show them
+            if isfield(event,'levels')
+                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
+                means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
+                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
+            end
+            
+            title('Event trace')
+            
+            if timefactor==1000
+                xlabel('Time (ms)')
+            else
+                xlabel('Time (s)')
+            end
+            ylabel('I / I_0')
+            ylim([0 1.1])
+            xlim([-Inf Inf])
+            
+            analysis.finishPlot(f, event, true, true, true, obj.in.filter);
+            
         end
         
     end
@@ -966,40 +957,8 @@ classdef analysis < handle
             if obj.parsed == true
                 return;
             end
-            p = inputParser;
-            
-            % defaults and checks
-            defaultFilterFreq = 1000;
-            defaultSampleFreq = 5000;
-            checkFilterFreq = @(x) all([isnumeric(x), numel(x)==1, x>=10, x<=20000]);
-            
-            defaultTimeRange = [obj.sigdata.tstart, obj.sigdata.tend]; % start and end of file
-            checkTimeRange = @(x) all([all(isnumeric(x)), numel(x)==2, x(1)<x(2), x(1)>=obj.sigdata.tstart, x(2)<=obj.sigdata.tend]);
-            
-            checkPosNum = @(x) all([all(isnumeric(x)), all(x>=0)]);
-            
-            checkEventStart = @(x) any([strcmp(x, 'voltagedrop'), strcmp(x, 'currentdrop')]);
-            
-            % set up the inputs
-            addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
-            addOptional(p, 'sample', defaultSampleFreq, checkFilterFreq); % (down-) sampling frequency
-            addOptional(p, 'trange', defaultTimeRange, checkTimeRange); % time range of interest
-            addOptional(p, 'mincond', 1.4, checkPosNum); % min open pore conductance
-            addOptional(p, 'maxcond', 3, checkPosNum); % max open pore conductance
-            addOptional(p, 'minduration', 1e-6, checkPosNum); % min event duration
-            addOptional(p, 'threshold', 0.90, checkPosNum); % fraction of open pore event threshold
-            addOptional(p, 'voltage', [], @(x) all([all(isnumeric(x)), all(abs(x)>=1)])); % voltage(s) of interest
-            addOptional(p, 'eventstart', 'currentdrop', checkEventStart); % what defines start of event
-            addOptional(p, 'voltagecheck', @(x) (isnumeric(x) & x>1)); % function to use to check if voltages are okay
-            addOptional(p, 'files', [], @(y) all(cellfun(@(x) ischar(x), y))); % cell array of filenames
-            addOptional(p, 'eventlogic', struct(), @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
-            addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
-            addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
-            addOptional(p, 'savefile', [], @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
-            
-            % parse
-            parse(p,varargin{:});
-            obj.in = p.Results;
+            obj.in = analysis.parseInputs(varargin{:});
+            obj.parsed = true;
         end
         
         function [voltage, current] = getViewData(obj, trange)
@@ -1260,7 +1219,7 @@ classdef analysis < handle
             end
             events = obj.getEvents(obj.in.trange); % do event finding
             events = obj.attachMetadata(events, obj.metadata); % metadata
-            obj.save(events);
+            obj.save(events,'savefile',obj.in.savefile);
         end
         
     end
