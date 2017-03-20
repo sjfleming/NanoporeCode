@@ -1175,7 +1175,7 @@ classdef analysis < handle
             numpts = 2^20;
             rep = max(1, round(diff(inds) / pts)); % number of original points per downsampled point
             if (rep < 2)
-                d = obj.sigdata.get(inds);
+                d = obj.sigdata.get(inds, [1,chan,3]);
                 return;
             end
             chunks = floor(diff(inds)/numpts); % number of full chunks
