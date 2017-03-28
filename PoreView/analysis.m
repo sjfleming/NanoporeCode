@@ -88,6 +88,17 @@ classdef analysis < handle
             
         end
         
+        function files = stephenFileNames(date, nums)
+            % return cell array of file names according to SJF Mac computer
+            % filesystem of naming
+            % files = stephenFileNames('20140210',[31,32,43,44])
+            folder = ['/Users/Stephen/Documents/Stephen/Research/Data/Biopore/' date '/'];
+            files = cell(0);
+            for i = nums
+                files{end+1} = [folder date(1:4) '_' date(5:6) '_' date(7:8) '_' sprintf('%04d',i) '.abf'];
+            end
+        end
+        
         % further event analysis: level finding, alignment, etc.
         
         function mol = getMolecules(events)
@@ -504,6 +515,44 @@ classdef analysis < handle
             end
             box on
             
+            function keyFn(e, events, originalfig)
+            % keyboard callback
+                % do this even if we don't have data loaded
+                if strcmp(e.Character,'g')
+                    % allow user to select a rectangular area            
+                    try
+                        rect = getrect(gcf);
+                        minduration = (rect(1))*1e-3;
+                        maxduration = (rect(1)+rect(3))*1e-3;
+                        minblock = rect(2);
+                        maxblock = rect(2)+rect(4);
+                        evtlogic.duration = @(x) x>minduration && x<maxduration;
+                        evtlogic.fractional_block_mean = @(x) x>minblock && x<maxblock;
+                        evtsSelected = events(analysis.getLogic(events, 'eventlogic', evtlogic));
+                        cmap = get(gca,'colororder');
+                        c = cmap(randi(size(cmap,1)),:);
+                        % change the color of the events selected
+                        for num = 1:numel(originalfig.Children.Children)
+                            if any(cellfun(@(x) strcmp('Marker',x), fieldnames(originalfig.Children.Children(num)))) % is it a data point obj
+                                mx = originalfig.Children.Children(num).XData;
+                                my = originalfig.Children.Children(num).YData;
+                                if evtlogic.duration(mx*1e-3) && evtlogic.fractional_block_mean(my)
+                                    set(originalfig.Children.Children(num),'Color',c);
+                                end
+                            end
+                        end
+                        % draw box around them
+                        rectangle('Position',rect,'EdgeColor',c);
+                        % do the scatter plot overlay of selected events
+                        analysis.plotEventsOverlaid(evtsSelected);
+                    catch
+                        disp('Problem with rectangle selection.  Try again.')
+                    end
+                    
+                end
+            end
+            set(f,'WindowKeyPressFcn',@(~,e) keyFn(e, events, f));
+            
         end
         
         function f = plotInteractiveEventScatter3(events, varargin)
@@ -589,6 +638,24 @@ classdef analysis < handle
             % create an analysis object for obtaining the event data
             a = analysis(SignalData(event.file));
             f = a.plotSingleEvent(event, varargin{:});
+            
+        end
+        
+        function f = plotEventsOverlaid(events, varargin)
+            % f = plotEventsOverlaid(events, 'optional_inputs'...)
+            % necessary inputs: event cell struct
+            % optional: filter, color, current scaling, sampling, etc.
+            % returns figure handle
+            
+            % create an analysis object for obtaining the event data
+            f = figure();
+            a = analysis(SignalData(events{1}.file));
+            for i = 1:numel(events)
+                if ~strcmp(a.sigdata.filename,events{i}.file)
+                    a = analysis(SignalData(events{i}.file));
+                end
+                f = a.plotSingleEventScatter(events{i}, 'figure', f, varargin{:});
+            end
             
         end
         
@@ -714,8 +781,8 @@ classdef analysis < handle
             p = inputParser;
             
             % defaults and checks
-            defaultFilterFreq = 1000;
-            defaultSampleFreq = 5000;
+            defaultFilterFreq = 10000;
+            defaultSampleFreq = 50000;
             checkFilterFreq = @(x) all([isnumeric(x), numel(x)==1, x>=10, x<=20000]);
             
             defaultTimeRange = [];
@@ -726,16 +793,12 @@ classdef analysis < handle
             checkEventStart = @(x) any([strcmp(x, 'voltagedrop'), strcmp(x, 'currentdrop')]);
             
             % getting next figure for default purposes
+            a = 1;
             f = get(groot,'currentfigure');
-            if ~isempty(f)
-                a = f.Number;
-                while ishandle(a)
-                    a = a+1;
-                end
-                defaultFigureNum = a;
-            else
-                defaultFigureNum = 1;
+            while ~isempty(f) && ishandle(a)
+                a = a+1;
             end
+            defaultFigureNum = a;
             
             % set up the inputs
             addOptional(p, 'filter', defaultFilterFreq, checkFilterFreq); % filter frequency
@@ -752,7 +815,7 @@ classdef analysis < handle
             addOptional(p, 'eventlogic', struct(), @(x) isstruct(x)); % logical conditions for selecting events (used by getLogic)
             addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
             addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
-            addOptional(p, 'savefile', [], @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
+            addOptional(p, 'savefile', '', @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
             addOptional(p, 'title', 'Event scatter plot', @(x) ischar(x)); % title on plots
             addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
             addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
@@ -771,16 +834,22 @@ classdef analysis < handle
             % [ATP], [ADPNP], and which pore was used.
             % metadata is added to events that are found later.
             
-            inpt = inputdlg({'Pore','Temperature','KCl molarity','ATP molarity','ADPNP molarity','Mg molarity'},'Input metadata',1,{'M2-MspA','25','1.0','0.002','0','0.002'});
-            pore = inpt{1};
-            values = cellfun(@(x) str2double(x), inpt(2:end));
+            inpt = inputdlg({'Pore','Temperature','KCl molarity','ATP molarity','ADPNP molarity','Mg molarity','Analyte'},'Input metadata',1,{'M2-MspA','25','1.0','0.002','0','0.002','E5/SK23-24'});
+            values = inpt;
             
-            metadata.pore = pore;
-            metadata.temperature = values(1);
-            metadata.KCl_molarity = values(2);
-            metadata.ATP_molarity = values(3);
-            metadata.ADPNP_molarity = values(4);
-            metadata.Mg_molarity = values(5);
+            for i = 1:numel(inpt)
+                if ~isnan(str2double(inpt{i}))
+                    values{i} = str2double(inpt{i});
+                end
+            end
+            
+            metadata.pore = values{1};
+            metadata.temperature = values{2};
+            metadata.KCl_molarity = values{3};
+            metadata.ATP_molarity = values{4};
+            metadata.ADPNP_molarity = values{5};
+            metadata.Mg_molarity = values{6};
+            metadata.analyte = values{7};
             
         end
         
@@ -902,18 +971,7 @@ classdef analysis < handle
             % input handling
             obj.parseObjectInputs(varargin{:});
             
-            % get next figure
-            cf = get(groot,'currentfigure');
-            if ~isempty(cf)
-                a = cf.Number;
-                while ishandle(a)
-                    a = a+1;
-                end
-                figureNum = a;
-            else
-                figureNum = 1;
-            end
-            f = figure(figureNum);
+            f = figure(obj.in.figure);
             
             pad = max(2e-4/obj.sigdata.si, event.duration/50/obj.sigdata.si); % data points before and after
             
@@ -948,6 +1006,50 @@ classdef analysis < handle
             
         end
         
+        function f = plotSingleEventScatter(obj, event, varargin)
+            % f = plotSingleEvent(event, 'optional_inputs'...)
+            % necessary inputs: event cell struct
+            % optional: filter, color, current scaling, sampling, etc.
+            % returns figure handle
+            
+            % input handling
+            obj.parseObjectInputs(varargin{:});
+            
+            f = figure(obj.in.figure);
+            
+            pad = max(2e-4/obj.sigdata.si, event.duration/50/obj.sigdata.si); % data points before and after
+            
+            d = obj.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
+            
+            % plot either in ms or s depending on scale of event
+            timefactor = 1;
+            if d(end,1)-d(1,1)<1.5
+                timefactor = 1000;
+            end
+            plot((d(:,1)-event.time(2))*timefactor,d(:,2)*obj.in.currentscaling/event.open_pore_current_mean,'k.')
+            
+            % if there are levels specified, show them
+            if isfield(event,'levels')
+                timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
+                means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
+                line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
+            end
+            
+            title('Event trace')
+            
+            if timefactor==1000
+                xlabel('Time (ms)')
+            else
+                xlabel('Time (s)')
+            end
+            ylabel('I / I_0')
+            ylim([0 1.1])
+            xlim([-Inf Inf])
+            hold on
+            set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            
+        end
+        
     end
     
     methods (Access = private) % only called by class methods
@@ -955,6 +1057,17 @@ classdef analysis < handle
         function parseObjectInputs(obj, varargin)
             % parse all inputs so all methods can use them easily
             if obj.parsed == true
+                % getting next figure for default purposes
+                if ~(any(cellfun(@(x) strcmp('figure',x), varargin)))
+                    % figure not specified
+                    % so increment to next figure
+                    a = 1;
+                    f = get(groot,'currentfigure');
+                    while ~isempty(f) && ishandle(a)
+                        a = a+1;
+                    end
+                    obj.in.figure = a;
+                end
                 return;
             end
             obj.in = analysis.parseInputs(varargin{:});
