@@ -144,6 +144,32 @@ classdef analysis < handle
             
         end
         
+        function totalDuration = getTotalRecordingDuration(events, varargin)
+            % totalDuration = getTotalRecordingDuration(events, varargin)
+            % returns the total duration of the file recording, at least,
+            % from the beginning of the first event to the end of the last
+            % event.  sums over all files represented in 'events'.
+            
+            % input handling
+            in = analysis.parseInputs(varargin{:});
+            
+            % pare down events according to user input
+            logic = analysis.getLogic(events, varargin{:});
+            events = events(logic);
+            
+            % loop through each unique file and add up durations
+            totalDuration = 0;
+            uniqueFiles = unique(cellfun(@(x) x.file, events, 'UniformOutput', false));
+            for i = 1:numel(uniqueFiles)
+                elog.file = @(x) strcmp(x, uniqueFiles{i});
+                logic = analysis.getLogic(events, 'eventlogic', elog);
+                t1 = min(cellfun(@(x) x.time(1), events(logic)));
+                t2 = max(cellfun(@(x) x.time(2), events(logic)));
+                totalDuration = totalDuration + (t2-t1);
+            end
+            
+        end
+        
         function events = findEventLevels(events, expectedLevelsPerSecond, falsePositivesPerSecond, varargin)
         % perform level-finding on each event
         % find the levels which are significant based on Kevin Karplus'
@@ -432,7 +458,8 @@ classdef analysis < handle
             set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
             xlim([1e-2 2e5])
-            title(in.title)
+            % title(in.title)
+            title([in.title ', ' num2str(sum(logic)) ' events in ' num2str(round(analysis.getTotalRecordingDuration(events, varargin{:}))) ' sec'])
             xlabel('Duration (ms)')
             if in.inverted == false
                 ylabel('I / I_0');
@@ -816,7 +843,7 @@ classdef analysis < handle
             addOptional(p, 'currentscaling', 1000, checkPosNum); % true current (pA) = recorded current value * currentscaling
             addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
             addOptional(p, 'savefile', '', @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
-            addOptional(p, 'title', 'Event scatter plot', @(x) ischar(x)); % title on plots
+            addOptional(p, 'title', 'Scatter plot', @(x) ischar(x)); % title on plots
             addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
             addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
             addOptional(p, 'inverted', false, @(x) islogical(x)); % scatter plots: inverted true plots \Delta I / I_0
