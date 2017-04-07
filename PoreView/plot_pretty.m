@@ -38,22 +38,23 @@ function plot_pretty(sigdata, trange, filter, channels, t)
     figure(2)
     clf(2)
     h = gcf;
-    plot(raw(:,1),abs(raw(:,2))*1000,'Color',[0.85,0.85,0.85])
+    tstart = data(1,1);
+    plot(raw(:,1)-tstart,abs(raw(:,2))*1000,'Color',[0.85,0.85,0.85])
     hold on
-    plot(raw(:,1),raw(:,3),'Color','r')
-    plot(data(:,1),abs(data(:,2)),'Color','b')
+    plot(raw(:,1)-tstart,raw(:,3),'Color','r')
+    plot(data(:,1)-tstart,abs(data(:,2)),'Color','b')
     xlabel('Time (s)','FontSize',28)
     ylabel('Current (pA)','FontSize',28)
     name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
 
     % pulses
     if sigdata.nsigs>2 % we have pulses recorded
-        line(repmat(pulses',1,2)',repmat(get(gca,'ylim'),numel(pulses),1)','Color',[0.8500    0.3250    0.0980],'LineStyle','-') % vertical lines
+        line(repmat(pulses',1,2)'-tstart,repmat(get(gca,'ylim'),numel(pulses),1)','Color',[0.8500    0.3250    0.0980],'LineStyle','-') % vertical lines
     end
 
     title(t,'FontSize',24)
     annotation('textbox', [0.75 0.87 0 0], 'String', [name ' ' num2str(filter) 'Hz'], 'FontSize', 20);
-    xlim([trange(1), trange(2)])
+    xlim([trange(1), trange(2)]-tstart)
     %xlim([0, trange(2)-trange(1)])
     ylim([min(0,min(abs(data(:,2)))-20),max(abs(data(:,2)))+20])
     set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!

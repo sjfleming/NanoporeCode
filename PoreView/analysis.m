@@ -36,6 +36,11 @@ classdef analysis < handle
             
             % input metadata
             metadata = analysis.inputMetadata();
+            if isempty(metadata)
+                display('Operation cancelled.');
+                events = cell(0);
+                return;
+            end
             
             % choose time ranges of interest in each file
             for i = 1:numel(in.files)
@@ -97,6 +102,25 @@ classdef analysis < handle
             for i = nums
                 files{end+1} = [folder date(1:4) '_' date(5:6) '_' date(7:8) '_' sprintf('%04d',i) '.abf'];
             end
+        end
+        
+        function events = loadEvents(files)
+            % events = loadEvents(files)
+            % loads all the event data in all files passed in cell array
+            
+            events = cell(0);
+            for i = 1:numel(files)
+                datafile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' files{i}(end-27:end-4) '_events.mat'];
+                try
+                    e = load(datafile);
+                catch ex
+                    display('Error loading requested event files.');
+                    events = cell(0);
+                    return;
+                end
+                events = [events; e.events];
+            end
+            
         end
         
         % further event analysis: level finding, alignment, etc.
@@ -433,6 +457,10 @@ classdef analysis < handle
             
             % limit to these events
             events = events(logic);
+            if isempty(events)
+                display('No events to display!')
+                return;
+            end
             
             % what to plot
             switch in.eventblockage
@@ -450,11 +478,11 @@ classdef analysis < handle
                 y = 1-y;
             end
             ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
-            sk23event = cellfun(@(x) x.current_std/x.open_pore_current_mean > 0.05 && x.duration > 1, events); % empirical approximation for real event
-            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'x','markersize',5,'color',in.color)
+            %sk23event = cellfun(@(x) x.current_std/x.open_pore_current_mean > 0.05 && x.duration > 1, events); % empirical approximation for real event
+            plot(cellfun(@(x) x.duration, events(ended_manually))*1000, y(ended_manually),'o','markersize',6,'color',in.color)
             hold on
-            plot(cellfun(@(x) x.duration, events(~ended_manually & sk23event))*1000, y(~ended_manually & sk23event),'.','markersize',25,'color','g')
-            plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',3,'color',in.color)
+            %plot(cellfun(@(x) x.duration, events(~ended_manually & sk23event))*1000, y(~ended_manually & sk23event),'.','markersize',25,'color','g')
+            plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',1.5,'color',in.color)
             set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
             xlim([1e-2 2e5])
@@ -495,6 +523,10 @@ classdef analysis < handle
             
             % limit to these events
             events = events(logic);
+            if isempty(events)
+                display('No events to display!')
+                return;
+            end
             
             % what to plot
             switch in.eventblockage
@@ -868,6 +900,12 @@ classdef analysis < handle
                 if ~isnan(str2double(inpt{i}))
                     values{i} = str2double(inpt{i});
                 end
+            end
+            
+            if isempty(values)
+                % user canceled operation
+                metadata = [];
+                return;
             end
             
             metadata.pore = values{1};
