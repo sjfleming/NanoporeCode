@@ -574,7 +574,7 @@ classdef analysis < handle
             end
             box on
             
-            function keyFn(e, events, originalfig)
+            function keyFn(e, events, originalfig, isInverted)
             % keyboard callback
                 % do this even if we don't have data loaded
                 if strcmp(e.Character,'g')
@@ -583,34 +583,46 @@ classdef analysis < handle
                         rect = getrect(gcf);
                         minduration = (rect(1))*1e-3;
                         maxduration = (rect(1)+rect(3))*1e-3;
-                        minblock = rect(2);
-                        maxblock = rect(2)+rect(4);
+                        y1 = rect(2);
+                        y2 = rect(2)+rect(4);
+                        % if the plot is inverted, be careful!  re-invert..
+                        if isInverted
+                            maxblock = 1-y1;
+                            minblock = 1-y2;
+                        else
+                            maxblock = y2;
+                            minblock = y1;
+                        end
                         evtlogic.duration = @(x) x>minduration && x<maxduration;
                         evtlogic.fractional_block_mean = @(x) x>minblock && x<maxblock;
                         evtsSelected = events(analysis.getLogic(events, 'eventlogic', evtlogic));
+                        
+                        % do the scatter plot overlay of selected events
+                        analysis.plotEventsOverlaid(evtsSelected);
+                        
+                        % draw box around them
+                        figure(originalfig);
                         cmap = get(gca,'colororder');
                         c = cmap(randi(size(cmap,1)),:);
+                        rectangle('Position',rect,'EdgeColor',c);
+                        
                         % change the color of the events selected
                         for num = 1:numel(originalfig.Children.Children)
                             if any(cellfun(@(x) strcmp('Marker',x), fieldnames(originalfig.Children.Children(num)))) % is it a data point obj
                                 mx = originalfig.Children.Children(num).XData;
                                 my = originalfig.Children.Children(num).YData;
-                                if evtlogic.duration(mx*1e-3) && evtlogic.fractional_block_mean(my)
+                                if evtlogic.duration(mx*1e-3) && my>y1 && my<y2
                                     set(originalfig.Children.Children(num),'Color',c);
                                 end
                             end
                         end
-                        % draw box around them
-                        rectangle('Position',rect,'EdgeColor',c);
-                        % do the scatter plot overlay of selected events
-                        analysis.plotEventsOverlaid(evtsSelected);
                     catch
                         disp('Problem with rectangle selection.  Try again.')
                     end
                     
                 end
             end
-            set(f,'WindowKeyPressFcn',@(~,e) keyFn(e, events, f));
+            set(f,'WindowKeyPressFcn',@(~,e) keyFn(e, events, f, in.inverted));
             
         end
         
