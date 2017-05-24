@@ -1063,7 +1063,7 @@ classdef analysis < handle
             
             f = figure(obj.in.figure);
             
-            pad = max(2e-4/obj.sigdata.si, event.duration/50/obj.sigdata.si); % data points before and after
+            pad = max(2e-3/obj.sigdata.si, event.duration/20/obj.sigdata.si); % data points before and after
             
             d = obj.downsample_pointwise(event.index + [-1*pad, pad], 50000); % grab data
             
@@ -1270,14 +1270,20 @@ classdef analysis < handle
             pad = 2;
             for i = 1:numel(possibleStartInds) % go through all candidates
                 
+                % check and make sure we should look here
+                d = obj.downsample_pointwise([possibleStartInds(i)-pad, possibleEndInds(i)+pad]*dt/obj.sigdata.si, 10000);
+                if ~any(abs(d(:,end))<abs(g_m*obj.in.voltage/obj.in.voltagescaling)) % if no events will be found here
+                    continue; % skip this one
+                end
+                
                 % find exact event start
                 mid_event_index_near_start = obj.sigdata.findNext(startcondition, ((possibleStartInds(i)-pad)*dt+obj.in.trange(1))/obj.sigdata.si); % find point within event
                 mid_event_index_near_start = obj.sigdata.findNext(startcondition, mid_event_index_near_start+round(1e-5/obj.sigdata.si)); % make sure we're really in there
-                start_inds(i) = obj.sigdata.findPrev(startcondition_inv, mid_event_index_near_start);
+                start_inds(i) = round(obj.sigdata.findPrev(startcondition_inv, mid_event_index_near_start));
                 
                 % find exact event end
-                index_near_end = ((possibleEndInds(i)-pad)*dt+obj.in.trange(1))/obj.sigdata.si; % estimate of endpoint
-                extra_padding = round(2e-4/obj.sigdata.si);
+                index_near_end = max(start_inds(i),((possibleEndInds(i)-pad)*dt+obj.in.trange(1))/obj.sigdata.si); % estimate of endpoint
+                extra_padding = round((1e-4 + 2/obj.in.filter)/obj.sigdata.si); % settling time for level change depends on filter
                 index_after_end = obj.sigdata.findNext(endcondition, index_near_end); % a point surely after the event ends
                 index_in_event = obj.sigdata.findPrev(startcondition, index_after_end); % a point surely within the event itself
                 index_in_event = obj.sigdata.findPrev(startcondition, index_in_event-round(1e-5/obj.sigdata.si)); % no, really make sure
@@ -1285,9 +1291,10 @@ classdef analysis < handle
                 index_in_event = index_in_event - extra_padding;
                 ending_data = obj.sigdata.get([index_in_event, index_just_ended]); % grab that data
                 ending_conductance = ending_data(:,chan)./ending_data(:,3) * obj.in.currentscaling / obj.in.voltagescaling; % in nS
-                d_ending_conductance = diff(ending_conductance); % the derivative of the conductance of that ending bit
+                d_ending_conductance = ending_conductance(3:end)+ending_conductance(2:end-1) ...
+                    -2*ending_conductance(1:end-2); % a smoothed derivative of the conductance of that ending bit
                 d_ending_conductance = d_ending_conductance / sign(ending_conductance(end)); % normalizing
-                end_ind = find(d_ending_conductance<=0,1,'last')+1 + index_in_event - 1; % find last point where derivative is negative
+                end_ind = round(find(d_ending_conductance<=0,1,'last')+2 + index_in_event - 1); % find last point where derivative is negative
                 
                 % make sure we get some ending, if that technique didn't work
                 if isempty(end_ind)
@@ -1303,6 +1310,11 @@ classdef analysis < handle
                         end_inds(i) = NaN;
                         display('problem with event: overlap')
                     end
+                end
+                % if this event has an issue, get rid of it
+                if end_inds(i)<start_inds(i)
+                    start_inds(i) = NaN;
+                    end_inds(i) = NaN;
                 end
                 
             end
@@ -1325,6 +1337,9 @@ classdef analysis < handle
             
             % loop through each event
             for i = 1:size(regions,1)
+                if any(isnan(regions(i,:))) % skip any non-events
+                    continue;
+                end
                 % grab data
                 if diff(regions(i,:))<5e5
                     % just get the whole thing
@@ -1349,7 +1364,7 @@ classdef analysis < handle
                 events{i}.time = regions(i,:) * obj.sigdata.si;
                 % get local open pore value
                 numpts = round(1e-3/obj.sigdata.si); % try for 1ms worth of data
-                if i>1
+                if i>1 && regions(i-1,2)<regions(i,1)
                     open = obj.sigdata.get(max(regions(i-1,2),regions(i,1)-numpts):max(1,regions(i,1))); % don't overlap previous event
                 else
                     open = obj.sigdata.get(max(1,regions(i,1)-numpts):max(1,regions(i,1)));
@@ -1378,11 +1393,20 @@ classdef analysis < handle
                 events{i}.file = obj.sigdata.filename;
             end
             
+            % get rid of non-events
+            events = events(~isnan(regions(:,1))); % NaNs are non-events
+            
         end
         
         function d = downsample_pointwise(obj, inds, pts)
             %DOWNSAMPLE_POINTWISE does a pointwise downsampling, returning ABOUT 'pts' points
             % downsample data in chunks of 2^20
+            
+            % NaNs return nothing
+            if any(isnan(inds))
+                d = [];
+                return;
+            end
             
             % if there is no filtered data in sigdata, make one
             if obj.in.filter==10000
