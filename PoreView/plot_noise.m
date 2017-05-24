@@ -137,8 +137,12 @@ function plot_noise(sigdata, trange)
     hold on
     plot(f(1:imax)',dfft(1:imax,1));
     line(f(1:imax),noise_model(1:imax),'Color','c','LineStyle','-')
-    name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
-    annotation('textbox', [0.75 0.9 0 0], 'String', name, 'FontSize', 20);
+    try
+        name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
+        annotation('textbox', [0.75 0.9 0 0], 'String', name, 'FontSize', 20);
+    catch ex
+        % um
+    end
     ylim([1e-12 1e-8])
     %xlim([1 10000])
 %     I_list = evalin('base','I');

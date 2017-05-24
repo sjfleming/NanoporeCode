@@ -6,7 +6,7 @@ classdef util
             
             t = inputdlg('Enter title:','Input');
             display(['Plotting time interval [' num2str(tr) ']'])
-            plot_pretty(pv.data,tr,100,[5,3],t);
+            plot_pretty(pv.data,tr,1000,[5,3],t);
             %plot_pretty(sigdata,tr,'none',[4,3],t);
             %plot_pretty(sigdata,tr,2000,[2,3,6],t);
             
