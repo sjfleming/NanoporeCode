@@ -198,15 +198,37 @@ function pv = pv_launch(s)
         elseif strcmp(e.Character,'x')
             % display conductance
             display('Showing conductance')
-            fcondSig = pv.data.addVirtualSignal(@(d) repmat(abs(d(:,2)*1000./d(:,3)) .* double(abs(d(:,3))>5),[1 2]),'Conductance (nS)',[2,3]); % signal 6
-            pv.setSignalPanel(1, fcondSig(2)); % show it
+            % create a conductance channel for all signals that are current
+            filtname = 'Conductance (nS)';
+            fsigs = arrayfun(@(x) x.addVirtualSignal(@(d) filt_conductance(d,3), ...
+                filtname, [2 3]), pv.data, 'UniformOutput', false);
+            if pv.data.nvsigs>0 % have to do it this way for order of operations not to screw things up
+                % go through each virtual signal and make a new one for
+                % conductance, that uses only the original data, and that
+                % names it appropriately
+                for i = 1:(pv.data.nvsigs/2)
+                    % if this is conductance already, skip it
+                    if strfind(pv.data.vnames{i},'Conductance')
+                        continue;
+                    end
+                    fun = pv.data.vfuns{i};
+                    arrayfun(@(x) x.addVirtualSignal(@(d) filt_conductance(fun(d),3), ...
+                        sprintf('%s (%s)',filtname,pv.data.vnames{i}), [2 3]), pv.data, 'UniformOutput', false);
+                end
+            end
+            fcondSig = fsigs{1};
+            pv.setSignalPanel(1, fcondSig(1)); % show it
             pv.autoscaleY();
         
         elseif strcmp(e.Character,'h')
-            % do a current histogram
+            % do a histogram
             % between cursors
             tr = pv.getCursors();
-            util.doCurrentHistogram(pv.data,tr);
+            if isempty(tr)
+                % otherwise, do the full view
+                tr = pv.getView();
+            end
+            util.doHistogram(pv.data,tr);
             
         elseif strcmp(e.Character,'q')
             % play audio

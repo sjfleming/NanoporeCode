@@ -253,16 +253,19 @@ classdef util
             
         end
         
-        function doCurrentHistogram(sigdata,tr)
+        function doHistogram(sigdata,tr)
             
             display(['Creating histogram from [' num2str(tr) ']'])
-            if ~exist('fcondSig','var')
-                filter = 1000; % Hz
-                fcurrentSig = sigdata.addVirtualSignal(@(d) filt_lp(d,4,filter)*1e3,'Low-pass',2); % signal 5
-                fcondSig = sigdata.addVirtualSignal(@(d) repmat(abs(d(:,2)*1000./d(:,3)) .* double(abs(d(:,3))>5),[1 2]),'Conductance (nS)',[2,3]);
+            signals = sigdata.getSignalList();
+            [chan, v] = listdlg('PromptString','Select a signal:', ...
+                'SelectionMode','single','ListString',signals);
+            if v==0
+                display('Operation canceled.');
+                return;
             end
-            channels = [fcurrentSig(end),fcondSig(end)];
-            histogram_pv(sigdata,tr,filter,channels);
+            [xx,yy] = plot_hist(sigdata, tr, chan);
+            assignin('base','hist_x',xx);
+            assignin('base','hist_y',yy);
             
         end
         
