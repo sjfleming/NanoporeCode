@@ -45,7 +45,11 @@ function plot_pretty(sigdata, trange, filter, channels, t)
     plot(data(:,1)-tstart,abs(data(:,2)),'Color','b')
     xlabel('Time (s)','FontSize',28)
     ylabel('Current (pA)','FontSize',28)
-    name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
+    try
+        name = [sigdata.filename(end-27:end-20) '\_' sigdata.filename(end-7:end-4)];
+    catch ex
+        name = [];
+    end
 
     % pulses
     if sigdata.nsigs>2 % we have pulses recorded

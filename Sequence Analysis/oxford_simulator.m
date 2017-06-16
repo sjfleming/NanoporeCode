@@ -1,4 +1,4 @@
-function [pA, pAstd] = oxford_simulator(seq,model,plotFlag)
+function [pA, pAstdmean, pAstd] = oxford_simulator(seq,model,plotFlag)
 
 % Takes in a sequence in the form of 'ATCGTTCAAAGC...' and plots what
 % Oxford's simulated squiggles would look like.
@@ -9,7 +9,8 @@ states = get_states(nt2int(seq), 5); % k=5 for k-mer
 % get the current from Oxford's models
 load('models.mat')
 pA = model_data{model}.level_mean(states);
-pAstd = model_data{model}.sd_mean(states); % standard deviation of the mean
+pAstdmean = model_data{model}.sd_mean(states); % standard deviation of the mean
+pAstd = model_data{model}.level_stdv(states); % standard deviation of the mean
 
 % plot it
 if plotFlag==1
