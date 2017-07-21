@@ -95,7 +95,7 @@ function [Vs, Is] = plot_iv(filename)
     ys = coeffs(1)*Vs + coeffs(2);
     fitLine = plot(Vs,ys,'LineStyle','--');
     legend(fitLine,sprintf('\\sigma = %4.4g nS',1000*coeffs(1)),'Location','northwest');
-    name = [filename(65:68) '\_' filename(70:71) '\_' filename(73:74) '\_' filename(76:end-4)];
+    name = [filename(end-27:end-20), '\_', filename(end-7:end-4)];
     annotation('textbox', [0.65 0.2 0 0], 'String', name, 'FontSize', 20);
     
     xlabel('Voltage (mV)','FontSize',28)

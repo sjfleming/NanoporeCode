@@ -291,7 +291,7 @@ function pv = pv_launch(s)
             % perform analysis of blockage data gathered at a series of
             % voltages
             tr = pv.getCursors();
-            util.doBlockageAnalysis(pv,tr);
+            util.doBlockageAnalysis(pv.data,tr);
             
         elseif strcmp(e.Character,'e')
             % put cursors at edges of the event that the cursors are
