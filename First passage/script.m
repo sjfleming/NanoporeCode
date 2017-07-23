@@ -8,8 +8,8 @@
 
 % inputs
 V = 0.05; % voltage in Volts
-s = 0.5; % how many electronic charges per base
-d = 0.2; % diffusion constant in units of D_0
+s = 0.51; % how many electronic charges per base
+d = 0.13; % diffusion constant in units of D_0
 T = 273.15 + 25; % K
 n = 14; % number of bases past constriction
 tolerance = 1e-3; % for numerical integration, accurate to this
