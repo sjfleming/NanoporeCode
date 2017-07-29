@@ -107,21 +107,8 @@ function plot_noise(sigdata, trange)
     Ra = 3e7; % access resistance = rho/4*a (J.E. Hall, 1975), rho = 0.0895ohm*m for 1M KCl (http://www.sigmaaldrich.com/catalog/product/fluka/60131?lang=en&region=US), a = 1nm
     Cm = 0.45e-12; % typical membrane capacitance 0.2pF
     loss_tangent = 1; % Dave ref to http://pubs.acs.org/doi/pdf/10.1021/jp0680138
-    dielectric_loss = @(f) 8*pi*k*T*f*Cm*loss_tangent * 1e18;
     johnson = 4*k*T * ( 1/(R+2*Ra) + 1/Rf ) * 10^18;
-    shot = 0; %2 * 1.602*1e-19 * abs(I) * 1e-12 * 10^18;
-    ion = 1.12e-9 * (I*1e-12)^2 * (1e9)^2; % ion number fluctuations proportional to current squared (10/20/16 data for MspA from Oxford)
-    % Y = @(f,Ra,Cm) sqrt(-1)*2*pi*f*Cin + 1./( 2*Ra + 1./( 1/R + sqrt(-1)*2*pi*f.*Cm ) ) + 1./Rf; % complex conductance (admittance)
-    Y = @(f,Ra,Cm) 1./( 2*Ra + 1./( 1/R + sqrt(-1)*2*pi*f.*Cm ) ) + 1./Rf; % complex conductance (admittance)
-    % headstage = V_headstage^2.*real(Y(f,Ra,Cm).*conj(Y(f,Ra,Cm))) * 10^18;
-    headstage = @(f) V_headstage^2.*(2*pi*f*Cin).^2 * 10^18; % Sakmann-Neher p.112
-    % the filter
-    cutoff = 1e4;
-    factor = 2/1.8031 * pi/2.1;
-    [b,a] = besself(4,cutoff*factor);
-    h = freqs(b,a,f);
-    % noise_model = 4*k*T*real(Y(f,Ra,Cm)*1e18.*h.*conj(h)) + ion*real(h.*conj(h)) + shot*real(h.*conj(h)) + headstage.*real(h.*conj(h));
-    noise_model = 4*k*T*real(Y(f,Ra,Cm)*1e18.*h.*conj(h)) + ion*real(h.*conj(h)) + shot*real(h.*conj(h)) + headstage(f).*real(h.*conj(h)) + + dielectric_loss(f).*real(h.*conj(h));
+    
     %display(' ')
     %display(['V = ' num2str(V,4) ' mV'])
     %display(['I = ' num2str(I,4) ' pA'])
@@ -138,9 +125,28 @@ function plot_noise(sigdata, trange)
     rms = sqrt(mean(dfft(i1:i2,1))*1e6*(f(i2)-f(i1)));
     rms_dev = sqrt(std(dfft(i1:i2,1))*1e6*(f(i2)-f(i1))/sqrt(i2-i1+1));
     %display(['Irms = ' num2str(rms,3) ' ± ' num2str(rms_dev,2) ' pA over a ' num2str(round(f(i2)-f(i1))) 'Hz bandwidth'])
-    line([1 1e5],johnson*ones(1,2),'Color','k','LineStyle','--')
-    hold on
+    %line([1 1e5],johnson*ones(1,2),'Color','k','LineStyle','--')
+    %hold on
     plot(f(1:imax)',dfft(1:imax,1));
+    hold on
+    
+    % also plot a mean smoothed version
+    x = f(2:imax);
+    y = dfft(2:imax,1);
+    xx = logspace(log10(min(x)),log10(5e4),1000)';
+    subs = arrayfun(@(a) find(x(a)<=xx,1,'first'), 1:numel(x));
+    yy = accumarray(subs',y',[],@median);
+    xx = xx(yy~=0);
+    yy = yy(yy~=0);
+    plot(xx,yy)
+    
+    % fit a noise model
+    nfun = @(a,b,c,x) log10(noise_model(x,temp,conductance,I,1e4*c,a*1e7,b*1e-12,1,Cin,V_headstage));
+    ft = fittype(nfun, 'independent',{'x'}, 'coefficients',{'a','b','c'});
+    fitlims = xx>1e2 & xx<2e4;
+    noise_model_fit = fit(xx(fitlims),log10(yy(fitlims)),ft,'StartPoint',[1,0.3,1],'Lower',[1,0.1,0.5],'Upper',[1,20,2]);
+    line(xx,noise_model(xx,temp,conductance,I,1e4*noise_model_fit.c,noise_model_fit.a*1e7,noise_model_fit.b*1e-12,1,Cin,V_headstage),'Color','c','LineStyle','-')
+    display(['Fit: Ra = ' num2str(noise_model_fit.a) 'MOhm, Cm = ' num2str(noise_model_fit.b) 'pF, filter factor = ' num2str(noise_model_fit.c)])
     
     try
         name = [sigdata.filename(65:68) '\_' sigdata.filename(70:71) '\_' sigdata.filename(73:74) '\_' sigdata.filename(76:end-4)];
@@ -150,17 +156,9 @@ function plot_noise(sigdata, trange)
     end
     ylim([1e-12 1e-8])
     
-    % also plot a mean smoothed version
-    x = f(2:imax);
-    y = dfft(2:imax,1);
-    xx = logspace(log10(min(x)),log10(5e4),2000);
-    subs = arrayfun(@(a) find(x(a)<=xx,1,'first'), 1:numel(x));
-    yy = accumarray(subs',y',[],@median);
-    xx = xx(yy~=0);
-    yy = yy(yy~=0);
-    plot(xx,yy)
+    johnson = 4*k*T * ( 1/(R+2*noise_model_fit.a*1e7) + 1/Rf ) * 10^18;
+    line([1 1e5],johnson*ones(1,2),'Color','k','LineStyle','--')
     
-    line(f(1:imax),noise_model(1:imax),'Color','c','LineStyle','-')
     
     %xlim([1 10000])
 %     I_list = evalin('base','I');
