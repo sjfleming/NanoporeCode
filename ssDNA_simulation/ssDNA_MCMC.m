@@ -116,16 +116,29 @@ classdef ssDNA_MCMC < handle
         
         function test_coords = propose_translation(obj)
             % propose a "translation" move
-            r = randi(obj.N-1)+1; % random int from 2:N
+            % which beads are involved
+            inds = sort(randi(obj.N,1,2)); % two integers from 1 to N, in order
             delta = randn(1,3);
-            delta_scaled = delta/sqrt(sqrt(sum(delta.^2))*obj.kT/obj.k_s)*sqrt(obj.step);
+            unit = delta/sqrt(sum(delta.^2));
+            delta_scaled = unit * sqrt(obj.step * 2 * obj.kT / obj.k_s * pi / 2) * (1+randn(1)*0.25); % pi is for avg cos(theta)^2, randn is for no hard max
             test_coords = obj.current_coords;
-            test_coords(r:end,:) = test_coords(r:end,:) + repmat(delta_scaled,obj.N-r+1,1);
+            test_coords(inds(1):inds(2),:) = test_coords(inds(1):inds(2),:) + repmat(delta_scaled,diff(inds)+1,1);
         end
         
         function test_coords = propose_rotation(obj)
             % propose a "rotation" move
-            
+            % which beads are involved
+            inds = sort(randi(obj.N,1,2)); % two integers from 1 to N, in order
+            dtheta = 0.05*sqrt(2/obj.k_b);
+            R = rot_rand(dtheta); % random small angle rotation matrix from Tamas' implementation of Arvo 1992
+            fixed_pt = obj.current_coords(inds(1));
+            if rand()<0.5
+                fixed_pt = obj.current_coords(inds(2)); % fixed point is either end equally likely
+            end
+            vectors = obj.current_coords(inds(1):inds(2),:) - repmat(fixed_pt,diff(inds)+1,1); % vectors to each bead from fixed point
+            new_vectors = vectors*R; % rotate the vectors
+            test_coords = obj.current_coords;
+            test_coords(inds(1):inds(2),:) = repmat(fixed_pt,diff(inds)+1,1) + new_vectors;
         end
         
         function test_coords = propose_crankshaft(obj)
@@ -142,7 +155,7 @@ classdef ssDNA_MCMC < handle
             %U_b = -1 * obj.k_b * cosTheta;
             %deltaU = U_s + U_b + obj.constraintEnergy(coords);
             %U = exp(-deltaU / obj.kT);
-            U = U_s;
+            U = U_s / obj.kT;
         end
         
         function cosTheta = calculateAngles(obj,coords)
