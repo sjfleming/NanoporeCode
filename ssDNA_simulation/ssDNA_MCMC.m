@@ -51,13 +51,13 @@ classdef ssDNA_MCMC < handle
             obj.in = obj.parseInputs(varargin{:});
             obj.k_b = obj.in.k_b;
             obj.k_s = obj.in.k_s;
-            obj.n = obj.in.n;
+            obj.n = obj.in.bases;
             obj.l_b = obj.in.l_b;
-            obj.L = obj.in.n * obj.in.l_b;
-            obj.N = ceil(obj.in.n * obj.in.l_b/obj.in.l_k) + 1;
-            obj.l_k = obj.L / obj.N; % use the calculated length for segments
+            obj.L = obj.n * obj.in.l_b;
+            obj.N = ceil(obj.L/obj.in.l_k) + 1;
+            obj.l_k = obj.L / (obj.N-1); % use the calculated length for segments
             obj.T = obj.in.T;
-            obj.kT = obj.in.T * 1.38e-23  / (4.11e-21); % in pN*nm
+            obj.kT = obj.in.T * 1.38e-23  / (1e-21); % in pN*nm
             obj.fixed_points = obj.in.fixed_points;
             obj.boundary = obj.in.boundary;
             obj.force_function = obj.in.force_function;
@@ -67,6 +67,7 @@ classdef ssDNA_MCMC < handle
             else
                 obj.initial_coordinates = [(0:obj.N-1)'*obj.l_k, zeros(obj.N,2)];
             end
+            obj.current_coords = obj.initial_coordinates;
             obj.step = obj.in.step;
             
             % initialize configuration of ssDNA
@@ -116,10 +117,10 @@ classdef ssDNA_MCMC < handle
         function test_coords = propose_translation(obj)
             % propose a "translation" move
             r = randi(obj.N-1)+1; % random int from 2:N
-            delta = rand(1,3);
-            delta_scaled = delta/sqrt(sum(delta.^2))*(randn(1)+1)*obj.k_s/2/obj.kT*obj.step;
+            delta = randn(1,3);
+            delta_scaled = delta/sqrt(sqrt(sum(delta.^2))*obj.kT/obj.k_s)*sqrt(obj.step);
             test_coords = obj.current_coords;
-            test_coords(r:end) = test_coords(r:end) + delta_scaled;
+            test_coords(r:end,:) = test_coords(r:end,:) + repmat(delta_scaled,obj.N-r+1,1);
         end
         
         function test_coords = propose_rotation(obj)
@@ -137,17 +138,18 @@ classdef ssDNA_MCMC < handle
             vectors = diff(coords,1); % now [dx1, dy1, dz1; dx2, dy2, dz2; ...]
             lengths = sqrt(sum(vectors.^2,2)); % vector lengths as [l1; l2; l3; ...]
             U_s = 1/2 * obj.k_s * sum((lengths-obj.l_k).^2); % stretching
-            cosTheta = obj.calculateAngles(coords);
-            U_b = -1 * obj.k_b * cosTheta;
-            deltaU = U_s + U_b + obj.constraintEnergy(coords);
-            U = exp(-deltaU / obj.kT);
+            %cosTheta = obj.calculateAngles(coords);
+            %U_b = -1 * obj.k_b * cosTheta;
+            %deltaU = U_s + U_b + obj.constraintEnergy(coords);
+            %U = exp(-deltaU / obj.kT);
+            U = U_s;
         end
         
         function cosTheta = calculateAngles(obj,coords)
             % calculate angles of each segment with respect to previous one
             vectors = diff(coords,1); % now [dx1, dy1, dz1; dx2, dy2, dz2; ...]
             lengths = sqrt(sum(vectors.^2,2)); % vector lengths as [l1; l2; l3; ...]
-            cosTheta = [0; vectors(1:end-1,:).*vectors(2:end,:)./lengths(1:end-1)./lengths(2:end); 0]; % N elements, first and last are zero
+            cosTheta = [0; sum(vectors(1:end-1,:).*vectors(2:end,:),2)./lengths(1:end-1)./lengths(2:end); 0]; % N elements, first and last are zero
         end
         
         function U_f = constraintEnergy(obj, coords)
@@ -161,6 +163,7 @@ classdef ssDNA_MCMC < handle
             elseif ~isempty(obj.force_values)
                 
             end
+            U_f = 0;
         end
         
         function accept(obj, test_coords)
@@ -197,7 +200,7 @@ classdef ssDNA_MCMC < handle
             addOptional(p, 'force_function', [], @(x) isnumeric(feval(x,[0,0,0]))); % numeric function that gives force (pN) as a function of location (3d nm)
             addOptional(p, 'force_values', [], @(x) isnumeric(feval(x,[0,0,0]))); % values from which to interpolate force (pN)
             addOptional(p, 'initial_coordinates', [], @(x) all(isnumeric(x)) && size(x,2)==3); % starting ssDNA coordinates, for Kuhn segments: [x1,y1,z1; ...; xN,yN,zN] (nm)
-            addOptional(p, 'n', 30, @(x) x>6); % number of bases
+            addOptional(p, 'bases', 30, @(x) x>6); % number of bases
             addOptional(p, 'step', 1, @(x) x>0); % step size, in an energy ratio to kT
             
             % parse
