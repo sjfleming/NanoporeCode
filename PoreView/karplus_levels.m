@@ -1,5 +1,6 @@
 function levels = karplus_levels(data, expected_levels_per_second, false_positives_per_second, filter)
-% karplus_levels(data, p) implements a version of the level-finding algorithm
+% karplus_levels(data, expected_levels_per_second, false_positives_per_second, filter)
+% implements a version of the level-finding algorithm
 % with details described here:
 % https://gasstationwithoutpumps.wordpress.com/2014/06/17/segmenting-noisy-signals-revisited/
 %

@@ -170,13 +170,25 @@ function pv = pv_launch(s)
             % find discrete levels in data
             % if cursors, do those
             tr = pv.getCursors();
-            filter = 1000;
-            sample = 10000;
-            pValue = -10;
-            levels = util.doLevelAnalysis(pv.data, tr, filter, sample, pValue);
+%             filter = 1000;
+%             sample = 10000;
+%             pValue = -10;
+%             levels = util.doLevelAnalysis(pv.data, tr, filter, sample, pValue);
+            inpt = inputdlg({'Expected level duration (ms)','Tolerable false positives per second'},'Input level characteristics',1,{'430','1e-4'});
+            sigs = pv.data.getSignalList(); % list signals currently displayed in panel 1
+            sig = sigs{pv.psigs(1).sigs(end)}; % get the name of the top signal in panel 1
+            nums = regexp(sig, '\d+', 'match');
+            filter = str2double(nums{1}); % get the filter frequency from the signal name
+            display(['Detected a filter of ' num2str(filter) 'Hz'])
+            current = util.downsample_pointwise(pv.data, pv.psigs(1).sigs(end), tr, min(filter*5*diff(tr),10e6));
+            t = linspace(tr(1),tr(2),numel(current));
+            data = [t', current'];
+            levels = karplus_levels(data, 1/(str2double(inpt{1})/1000), str2double(inpt{2}), filter);
+            assignin('base','levels',levels);
             % plot on poreview
             plot(pv.psigs(1).axes, cell2mat(cellfun(@(x) [x.start_time, x.end_time], levels, 'uniformoutput', false))', ...
-                 cell2mat(cellfun(@(x) ones(1,2)*x.current_median/1000, levels, 'uniformoutput', false))', 'Color', 'r');
+                 cell2mat(cellfun(@(x) ones(1,2)*x.current_median, levels, 'uniformoutput', false))', 'Color', 'r','LineWidth',2);
+            plot(pv.psigs(1).axes, cellfun(@(x) x.start_time, levels)', cellfun(@(x) x.current_median, levels)', 'go');
             assignin('base','levels',levels); % assign variable to workspace
             
         elseif strcmp(e.Character,'m')

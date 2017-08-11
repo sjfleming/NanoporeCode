@@ -1,11 +1,10 @@
-function consensus_levs = create_consensus_alignment(levels)
-% create_consensus_alignment(lev1,lev2) does a best possible alignment of all
+function consensus_levs = create_consensus_alignment_mol(molecules)
+% create_consensus_alignment_mol(molecules) does a best possible alignment of all
 % the levels in levs using pairwise dynamic time warping and then keeping
 % only the levels which show up in both pairs
-% levels is a cell array, each of which is the matrix, in column vectors:
-% [level_means, level_stds]
+% molecules is a cell array of molecule objects which need not be the same length
 
-% Stephen Fleming 2017/08/03
+% Stephen Fleming 2016/06/21
 
     function consensus = pairwise_align(a,b)
         % align two sequences of levels pairwise
@@ -25,27 +24,34 @@ function consensus_levs = create_consensus_alignment(levels)
         stds(i2u,2) = b(i2(i2u),2);
         consensus = [nanmean(levs,2), nanmean(stds,2)];
         
+        % refine the consensus so that it tries to eliminate repeats
+        event.level_means = consensus(:,1);
+        event.level_stds = consensus(:,2);
+        event.level_timing = ones(size(consensus));
+        event.level_timing(:,2) = event.level_timing(:,1)+1;
+        m = molecule(event);
+        refined = m.get_robust_levels('pstay',-6,'pnoise',-10);
+        clear consensus;
+        consensus(:,1) = refined.level_means;
+        consensus(:,2) = refined.level_stds;
+        
         % find the points that agree really well
-%         d = 0.001; % distance away in nA whicih is considered near-agreement
+%         d = 20; % distance away in pA whicih is considered near-agreement
 %         num = min(numel(i1),numel(i2));
 %         levs = [a(i1(1:num),1),b(i2(1:num),1)];
 %         stds = [a(i1(1:num),2),b(i2(1:num),2)];
 %         consensus = [nanmean(levs(abs(levs(:,1)-levs(:,2))<d,:),2), nanmean(stds(abs(levs(:,1)-levs(:,2))<d,:),2)];
 %         consensus = [mode(levs,2), mean(stds,2)];
         
-        % eliminate repeats
-        lev_diffs = consensus(2:end,1) - consensus(1:end-1,1);
-        std_compare = min(consensus(1:end-1,2), consensus(2:end,2));
-        not_really_different = lev_diffs < std_compare; % neighboring levels are same within uncertainty
-        not_really_different = [0; not_really_different];
-        newcon = consensus(1,:);
-        new_lev_inds = find(~not_really_different);
-        for i = 1:numel(new_lev_inds)-1 % for all the ones that are new levels (i.e. not_really_different == 0)
-            newcon(i+1,:) = [mean(consensus(new_lev_inds(i):new_lev_inds(i+1)-1,1)), mean(consensus(new_lev_inds(i):new_lev_inds(i+1)-1,2))];
-        end
-        newcon(i+1,:) = [mean(consensus(new_lev_inds(i):end,1)), mean(consensus(new_lev_inds(i):end,2))];
-        consensus = newcon;
-        
+    end
+
+    % get levels from molecule objects
+    levels = cell(1,numel(molecules));
+    for i = 1:numel(molecules)
+        % get levels reasonably free of noise and spurious stuff
+        stdlim = 3.5; % levels with std greater than this are usually fake
+        n = molecules{i}.get_robust_levels('pstay',-4,'pnoise',-10);
+        levels{i} = [n.level_means(n.level_stds<stdlim), n.level_stds(n.level_stds<stdlim)];
     end
     
     % call pairwise_align and create consensus levels, then

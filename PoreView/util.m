@@ -576,7 +576,6 @@ classdef util
                 fulldata = sigdata.get(start+chunks*numpts:ending,channel); % the last bit that's not a full chunk
                 d = [d, downsample(fulldata',rep)];
             end
-            d = medfilt1(d,10);
             fprintf('\b\b\b\b\b');
         end
         
