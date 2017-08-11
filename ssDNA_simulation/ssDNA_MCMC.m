@@ -37,6 +37,9 @@ classdef ssDNA_MCMC < handle
         initial_coordinates;
         % all inputs from user
         in;
+        % counting accpetance ratios
+        proposal = '';
+        count = struct();
         % data
         coordinates = cell(0); % elements of cell array are time, each contains [x_1, y_1, z_1; x_2, y_2, z2; ...], in nm
         current_coords = []; % [x_1, y_1, z_1; x_2, y_2, z2; ...], in nm
@@ -70,29 +73,43 @@ classdef ssDNA_MCMC < handle
             obj.current_coords = obj.initial_coordinates;
             obj.step = obj.in.step;
             
+            % initialize counters
+            obj.count.proposed = struct();
+            obj.count.proposed.translations = 0;
+            obj.count.proposed.rotations = 0;
+            obj.count.proposed.crankshafts = 0;
+            obj.count.accepted = struct();
+            obj.count.accepted.translations = 0;
+            obj.count.accepted.rotations = 0;
+            obj.count.accepted.crankshafts = 0;
+            
             % initialize configuration of ssDNA
             if isempty(obj.coordinates)
                 
             end
         end
         
-        function run(obj)
+        function run(obj, samples)
             % run the mcmc sampler using metropolis-hastings
             
-            % generate uniform probability r = U(0,1)
-            r = rand();
+            for i = 1:samples
             
-            % generate proposed move
-            test_coords = obj.propose();
+                % generate uniform probability r = U(0,1)
+                r = rand();
+
+                % generate proposed move
+                test_coords = obj.propose();
+
+                % caluclate energy of proposed move
+                U = obj.energy(test_coords);
+
+                % accept or reject proposal, and either way take a sample
+                if r < U
+                    obj.accept(test_coords);
+                end
+                obj.sample();
             
-            % caluclate energy of proposed move
-            U = obj.energy(test_coords);
-            
-            % accept or reject proposal, and either way take a sample
-            if r < U
-                obj.accept(test_coords);
             end
-            obj.sample();
             
         end
         
@@ -100,10 +117,16 @@ classdef ssDNA_MCMC < handle
             % propose a move
             r = randi(3); % random integer: 1, 2, or 3
             if r==1
+                obj.proposal = 'translation';
+                obj.count.proposed.translations = obj.count.proposed.translations + 1;
                 test_coords = obj.propose_translation();
             elseif r==2
+                obj.proposal = 'rotation';
+                obj.count.proposed.rotations = obj.count.proposed.rotations + 1;
                 test_coords = obj.propose_rotation();
             else
+                obj.proposal = 'crankshaft';
+                obj.count.proposed.crankshafts = obj.count.proposed.crankshafts + 1;
                 test_coords = obj.propose_crankshaft();
             end
             % ensure fixed points are fixed
@@ -162,12 +185,13 @@ classdef ssDNA_MCMC < handle
             % calculate the energy of a proposed move
             vectors = diff(coords,1); % now [dx1, dy1, dz1; dx2, dy2, dz2; ...]
             lengths = sqrt(sum(vectors.^2,2)); % vector lengths as [l1; l2; l3; ...]
-            U_s = 1/2 * obj.k_s * sum((lengths-obj.l_k).^2); % stretching
+            U_s = 1/2 * obj.k_s * sum((lengths - obj.l_k).^2); % stretching
             cosTheta = obj.calculateAngles(coords);
-            U_b = -1 * obj.k_b * (sum(cosTheta) - sum(obj.calculateAngles(obj.initial_coordinates)));
-            %deltaU = U_s + U_b + obj.constraintEnergy(coords);
-            %U = exp(-deltaU / obj.kT);
-            U = U_b / obj.kT;
+            % U_b = -1 * obj.k_b * (sum(cosTheta) - sum(obj.calculateAngles(obj.initial_coordinates)));
+            U_b = -1 * obj.k_b * sum(cosTheta);
+            deltaU = U_s + U_b + obj.constraintEnergy(coords);
+            U = exp(-deltaU / obj.kT);
+            % U = U_b / obj.kT;
         end
         
         function cosTheta = calculateAngles(obj,coords)
@@ -180,6 +204,7 @@ classdef ssDNA_MCMC < handle
         function U_f = constraintEnergy(obj, coords)
             % calculate the energy having to do with the constraints
             % imposed as boundary conditions
+            U_f = 0;
             if ~isempty(obj.boundary)
                 
             end
@@ -188,26 +213,67 @@ classdef ssDNA_MCMC < handle
             elseif ~isempty(obj.force_values)
                 
             end
-            U_f = 0;
         end
         
         function accept(obj, test_coords)
             % accept proposal
             % move and update internal parameters
             obj.current_coords = test_coords;
+            switch obj.proposal
+                case 'translation'
+                    obj.count.accepted.translations = obj.count.accepted.translations + 1;
+                case 'rotation'
+                    obj.count.accepted.rotations = obj.count.accepted.rotations + 1;
+                case 'crankshaft'
+                    obj.count.accepted.crankshafts = obj.count.accepted.crankshafts + 1;
+            end
         end
         
         function sample(obj)
             % take a sample
-            obj.coordinates(:,end+1) = obj.current_coords;
+            obj.coordinates{end+1} = obj.current_coords;
         end
         
-        function plotSnapshot(obj)
-            
+        function reset_all(obj)
+            % clear all the samples from this simulation
+            obj.coordinates = cell(0);
+            obj.current_coords = obj.initial_coordinates;
+            % clear counters
+            obj.count.proposed.translations = 0;
+            obj.count.proposed.rotations = 0;
+            obj.count.proposed.crankshafts = 0;
+            obj.count.accepted.translations = 0;
+            obj.count.accepted.rotations = 0;
+            obj.count.accepted.crankshafts = 0;
         end
         
-        function plotOverlay(obj)
-            
+        function acceptance_ratios(obj)
+            % display acceptance ratios
+            disp(['Overall: ' num2str(round(sum(structfun(@(x) x, obj.count.accepted)) ...
+                / sum(structfun(@(x) x, obj.count.proposed))*100)) '% accepted'])
+            disp(['Translations: ' num2str(round(obj.count.accepted.translations  ...
+                / obj.count.proposed.translations * 100)) '% accepted'])
+            disp(['Rotations: ' num2str(round(obj.count.accepted.rotations  ...
+                / obj.count.proposed.rotations * 100)) '% accepted'])
+            disp(['Crankshafts: ' num2str(round(obj.count.accepted.crankshafts  ...
+                / obj.count.proposed.crankshafts * 100)) '% accepted'])
+        end
+        
+        function plot_snapshot(obj, time_index, fig)
+            % plot a 3d line plot of ssDNA for given time index in figure
+            figure(fig)
+            hold on
+            plot3(obj.coordinates{time_index}(:,1), ...
+                obj.coordinates{time_index}(:,2), ...
+                obj.coordinates{time_index}(:,3),'o-')
+        end
+        
+        function plot_overlay(obj, thinning, fig)
+            % plot a 3d line plot of ssDNA at (all) timepoints in figure
+            % if thinning is 5, plots every fifth timepoint
+            for i = 1:thinning:numel(obj.coordinates)
+                obj.plot_snapshot(i, fig);
+            end
         end
 
         function in = parseInputs(obj,varargin)
