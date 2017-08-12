@@ -135,7 +135,7 @@ classdef ssDNA_MCMC < handle
             % this is probably the worst way to do it... work on that
             if ~isempty(obj.fixed_points)
                 for i = 1:numel(obj.fixed_points)/2
-                    test_coords(obj.fixed_points(2*i-1)) = obj.fixed_points(2*i);
+                    test_coords(obj.fixed_points{2*i-1},:) = obj.fixed_points{2*i};
                 end
             end
         end
