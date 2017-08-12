@@ -106,7 +106,7 @@ classdef ssDNA_MCMC < handle
                 U = obj.energy(test_coords);
 
                 % accept or reject proposal, and either way take a sample
-                if r < exp(-(U-obj.current_energy)/obj.kT)
+                if r < exp(-(U-obj.current_energy + obj.constraint_energy(test_coords))/obj.kT)
                     obj.accept(test_coords, U);
                 end
                 obj.sample();
@@ -189,31 +189,38 @@ classdef ssDNA_MCMC < handle
             vectors = diff(coords,1); % now [dx1, dy1, dz1; dx2, dy2, dz2; ...]
             lengths = sqrt(sum(vectors.^2,2)); % vector lengths as [l1; l2; l3; ...]
             U_s = 1/2 * obj.k_s * sum((lengths - obj.l_k).^2); % stretching
-            cosTheta = obj.calculateAngles(coords);
+            cosTheta = obj.calculate_angles(coords);
             % U_b = -1 * obj.k_b * (sum(cosTheta) - sum(obj.calculateAngles(obj.initial_coordinates)));
             U_b = -1 * obj.k_b * sum(cosTheta);
             % deltaU = U_s + U_b + obj.constraintEnergy(coords) - obj.current_energy;
-            U = U_s + U_b + obj.constraintEnergy(coords);
+            U = U_s + U_b; % + obj.constraintEnergy(coords);
             % U = exp(-deltaU / obj.kT);
             % U = U_b / obj.kT;
         end
         
-        function cosTheta = calculateAngles(obj,coords)
+        function cosTheta = calculate_angles(obj,coords)
             % calculate angles of each segment with respect to previous one
             vectors = diff(coords,1); % now [dx1, dy1, dz1; dx2, dy2, dz2; ...]
             lengths = sqrt(sum(vectors.^2,2)); % vector lengths as [l1; l2; l3; ...]
             cosTheta = [0; sum(vectors(1:end-1,:).*vectors(2:end,:),2)./lengths(1:end-1)./lengths(2:end); 0]; % N elements, first and last are zero
         end
         
-        function U_f = constraintEnergy(obj, coords)
+        function U_f = constraint_energy(obj, coords)
             % calculate the energy having to do with the constraints
             % imposed as boundary conditions
             U_f = 0;
-            if ~isempty(obj.boundary)
-                
+            if ~isempty(obj.boundary) % if there's a boundary function
+                for i = 1:obj.N % go through beads
+                    if ~obj.boundary(coords(i,:)) % if one is outside
+                        U_f = Inf; % set energy to infinity
+                        return;
+                    end
+                end
             end
             if ~isempty(obj.force_function)
-                
+                for i = 1:obj.N % each bead
+                    U_f = U_f + obj.force_function(coords(i,:) - obj.current_coords(i,:));
+                end
             elseif ~isempty(obj.force_values)
                 
             end
@@ -273,6 +280,7 @@ classdef ssDNA_MCMC < handle
             plot3(obj.coordinates{time_index}(:,1), ...
                 obj.coordinates{time_index}(:,2), ...
                 obj.coordinates{time_index}(:,3),'o-')
+            axis equal
         end
         
         function plot_overlay(obj, thinning, fig)
@@ -281,6 +289,7 @@ classdef ssDNA_MCMC < handle
             for i = 1:thinning:numel(obj.coordinates)
                 obj.plot_snapshot(i, fig);
             end
+            axis equal
         end
 
         function in = parseInputs(obj,varargin)
@@ -299,7 +308,7 @@ classdef ssDNA_MCMC < handle
             addOptional(p, 'force_values', [], @(x) isnumeric(feval(x,[0,0,0]))); % values from which to interpolate force (pN)
             addOptional(p, 'initial_coordinates', [], @(x) all(isnumeric(x)) && size(x,2)==3); % starting ssDNA coordinates, for Kuhn segments: [x1,y1,z1; ...; xN,yN,zN] (nm)
             addOptional(p, 'bases', 30, @(x) x>6); % number of bases
-            addOptional(p, 'step', 1, @(x) x>0); % step size, in an energy ratio to kT
+            addOptional(p, 'step', 3, @(x) x>0); % step size, in an energy ratio to kT
             
             % parse
             parse(p,varargin{:});
