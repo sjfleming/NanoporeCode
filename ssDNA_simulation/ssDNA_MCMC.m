@@ -40,6 +40,8 @@ classdef ssDNA_MCMC < handle
         % counting accpetance ratios
         proposal = '';
         count = struct();
+        % keep track of energy
+        current_energy = 0;
         % data
         coordinates = cell(0); % elements of cell array are time, each contains [x_1, y_1, z_1; x_2, y_2, z2; ...], in nm
         current_coords = []; % [x_1, y_1, z_1; x_2, y_2, z2; ...], in nm
@@ -104,8 +106,8 @@ classdef ssDNA_MCMC < handle
                 U = obj.energy(test_coords);
 
                 % accept or reject proposal, and either way take a sample
-                if r < U
-                    obj.accept(test_coords);
+                if r < exp(-(U-obj.current_energy)/obj.kT)
+                    obj.accept(test_coords, U);
                 end
                 obj.sample();
             
@@ -189,8 +191,9 @@ classdef ssDNA_MCMC < handle
             cosTheta = obj.calculateAngles(coords);
             % U_b = -1 * obj.k_b * (sum(cosTheta) - sum(obj.calculateAngles(obj.initial_coordinates)));
             U_b = -1 * obj.k_b * sum(cosTheta);
-            deltaU = U_s + U_b + obj.constraintEnergy(coords);
-            U = exp(-deltaU / obj.kT);
+            % deltaU = U_s + U_b + obj.constraintEnergy(coords) - obj.current_energy;
+            U = U_s + U_b + obj.constraintEnergy(coords);
+            % U = exp(-deltaU / obj.kT);
             % U = U_b / obj.kT;
         end
         
@@ -215,10 +218,11 @@ classdef ssDNA_MCMC < handle
             end
         end
         
-        function accept(obj, test_coords)
+        function accept(obj, test_coords, test_energy)
             % accept proposal
             % move and update internal parameters
             obj.current_coords = test_coords;
+            obj.current_energy = test_energy;
             switch obj.proposal
                 case 'translation'
                     obj.count.accepted.translations = obj.count.accepted.translations + 1;
@@ -247,16 +251,17 @@ classdef ssDNA_MCMC < handle
             obj.count.accepted.crankshafts = 0;
         end
         
-        function acceptance_ratios(obj)
+        function overall = acceptance_ratios(obj)
             % display acceptance ratios
-            disp(['Overall: ' num2str(round(sum(structfun(@(x) x, obj.count.accepted)) ...
-                / sum(structfun(@(x) x, obj.count.proposed))*100)) '% accepted'])
-            disp(['Translations: ' num2str(round(obj.count.accepted.translations  ...
-                / obj.count.proposed.translations * 100)) '% accepted'])
-            disp(['Rotations: ' num2str(round(obj.count.accepted.rotations  ...
-                / obj.count.proposed.rotations * 100)) '% accepted'])
-            disp(['Crankshafts: ' num2str(round(obj.count.accepted.crankshafts  ...
-                / obj.count.proposed.crankshafts * 100)) '% accepted'])
+            overall = sum(structfun(@(x) x, obj.count.accepted)) ...
+                / sum(structfun(@(x) x, obj.count.proposed))*100;
+            disp(['Overall: ' num2str(overall) '% accepted'])
+            disp(['Translations: ' num2str(obj.count.accepted.translations  ...
+                / obj.count.proposed.translations * 100) '% accepted'])
+            disp(['Rotations: ' num2str(obj.count.accepted.rotations  ...
+                / obj.count.proposed.rotations * 100) '% accepted'])
+            disp(['Crankshafts: ' num2str(obj.count.accepted.crankshafts  ...
+                / obj.count.proposed.crankshafts * 100) '% accepted'])
         end
         
         function plot_snapshot(obj, time_index, fig)
