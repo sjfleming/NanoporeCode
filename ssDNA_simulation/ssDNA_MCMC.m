@@ -146,7 +146,7 @@ classdef ssDNA_MCMC < handle
             inds = sort(randi(obj.N,1,2)); % two integers from 1 to N, in order
             delta = randn(1,3);
             unit = delta/sqrt(sum(delta.^2));
-            delta_scaled = unit * sqrt(obj.step * 2 * obj.kT / obj.k_s * pi / 2) * (1+randn(1)*0.25); % pi is for avg cos(theta)^2, randn is for no hard max
+            delta_scaled = unit * sqrt(obj.step * 2 * obj.kT / obj.k_s * pi / 2) * rand(1)*obj.step; % pi is for avg cos(theta)^2, randn is for no hard max
             test_coords = obj.current_coords;
             test_coords(inds(1):inds(2),:) = test_coords(inds(1):inds(2),:) + repmat(delta_scaled,diff(inds)+1,1);
         end
@@ -155,7 +155,8 @@ classdef ssDNA_MCMC < handle
             % propose a "rotation" move
             % which beads are involved
             i = randi(obj.N); % random integer from 1 to N
-            dtheta = 0.05*sqrt(2/obj.k_b) * obj.step; % Tamas' scaling, empirically keeps moves somewhat small
+            dtheta = tanh(sqrt(2/obj.k_b) * obj.step^2); % empirical
+            % the maximum dtheta is 1, and min is 0
             R = rot_rand(dtheta); % random small angle rotation matrix from Tamas' implementation of Arvo 1992
             fixed_pt = obj.current_coords(i,:); % this is the fixed bead
             j = 1;
@@ -242,6 +243,7 @@ classdef ssDNA_MCMC < handle
             % clear all the samples from this simulation
             obj.coordinates = cell(0);
             obj.current_coords = obj.initial_coordinates;
+            obj.current_energy = 0;
             % clear counters
             obj.count.proposed.translations = 0;
             obj.count.proposed.rotations = 0;
