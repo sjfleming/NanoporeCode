@@ -97,7 +97,8 @@ classdef analysis < handle
             % return cell array of file names according to SJF Mac computer
             % filesystem of naming
             % files = stephenFileNames('20140210',[31,32,43,44])
-            folder = ['/Users/Stephen/Documents/Stephen/Research/Data/Biopore/' date '/'];
+            %folder = ['/Users/Stephen/Documents/Stephen/Research/Data/Biopore/' date '/'];
+            folder = ['C:\Stephen\Research\Data\Biopore\' date '\'];
             files = cell(0);
             for i = nums
                 files{end+1} = [folder date(1:4) '_' date(5:6) '_' date(7:8) '_' sprintf('%04d',i) '.abf'];
@@ -110,7 +111,7 @@ classdef analysis < handle
             
             events = cell(0);
             for i = 1:numel(files)
-                datafile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' files{i}(end-27:end-4) '_events.mat'];
+                datafile = ['C:\Stephen\Research\Analysis\Biopore\' files{i}(end-27:end-4) '_events.mat'];
                 try
                     e = load(datafile);
                 catch ex
@@ -485,7 +486,7 @@ classdef analysis < handle
             hold on
             %plot(cellfun(@(x) x.duration, events(~ended_manually & sk23event))*1000, y(~ended_manually & sk23event),'.','markersize',25,'color','g')
             plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',1.5,'color',in.color)
-            set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            set(gca,'xscale','log','fontsize',14,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
             xlim([1e-2 2e5])
             % title(in.title)
@@ -500,7 +501,7 @@ classdef analysis < handle
                 try
                     annotation('textbox', [0.7 0.9 0 0], 'String', ...
                         char(unique(cellfun(@(x) [x.file(end-27:end-20), '\_', x.file(end-7:end-4)], events, 'uniformoutput', false))), ...
-                        'FontSize', 20);
+                        'FontSize', 14);
                 catch ex
                 end
             else
@@ -508,7 +509,7 @@ classdef analysis < handle
                 try
                     annotation('textbox', [0.7 0.25 0 0], 'String', ...
                         char(unique(cellfun(@(x) [x.file(end-27:end-20), '\_', x.file(end-7:end-4)], events, 'uniformoutput', false))), ...
-                        'FontSize', 20);
+                        'FontSize', 14);
                 catch ex
                 end
             end
@@ -569,7 +570,7 @@ classdef analysis < handle
                 set(dot,'ButtonDownFcn',@(~,~) a.plotSingleEvent(events{i},i,varargin{:}));
                 hold on
             end
-            set(gca,'xscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            set(gca,'xscale','log','fontsize',14,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
             title('Interactive event scatter plot')
             xlabel('Duration (ms)')
@@ -698,7 +699,7 @@ classdef analysis < handle
                     disp(['Unable to plot event ' num2str(i)])
                 end
             end
-            set(gca,'zscale','log','fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            set(gca,'zscale','log','fontsize',14,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             xlim([0 1])
             %ylim([0 1])
             title('Interactive event scatter plot')
@@ -797,7 +798,7 @@ classdef analysis < handle
             ylabel('Current (pA)')
             xlabel('Model level')
             xlim([0 find(~isnan(lvl_accum),1,'last')+1])
-            set(gca,'FontSize',20)
+            set(gca,'FontSize',14)
             title('Best fit of data to model')
             
             subplot(3,1,2);
@@ -812,7 +813,7 @@ classdef analysis < handle
             ylabel('Current (pA)')
             xlabel('Measured level')
             xlim([0 numel(lvls)+1])
-            set(gca,'FontSize',20)
+            set(gca,'FontSize',14)
             title('Matching each measured level to a model state')
             
             subplot(3,1,3);
@@ -822,7 +823,7 @@ classdef analysis < handle
             title('Probability Matrix')
             ylabel('State')
             xlabel('Level Number')
-            set(gca,'FontSize',20)
+            set(gca,'FontSize',14)
             
         end
         
@@ -840,10 +841,10 @@ classdef analysis < handle
             else
                 try
                     if isempty(in.savefile)
-                        savefile = ['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-4) '_events.mat'];
+                        savefile = ['C:\Stephen\Research\Analysis\Biopore\' events{1}.file(end-27:end-4) '_events.mat'];
                         % make directory if it doesn't exist
-                        if exist(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)],'dir')==0
-                            mkdir(['/Users/Stephen/Documents/Stephen/Research/Analysis/Biopore/' events{1}.file(end-27:end-19)]);
+                        if exist(['C:\Stephen\Research\Analysis\Biopore\' events{1}.file(end-27:end-19)],'dir')==0
+                            mkdir(['C:\Stephen\Research\Analysis\Biopore\' events{1}.file(end-27:end-19)]);
                         end
                     else
                         savefile = in.savefile;
@@ -963,8 +964,8 @@ classdef analysis < handle
             if showFilter
                 str = [str  ' ' num2str(filter) 'Hz'];
             end
-            annotation('textbox', loc, 'String', str, 'FontSize', 20);
-            set(gca,'fontsize',18,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
+            annotation('textbox', loc, 'String', str, 'FontSize', 14);
+            set(gca,'fontsize',14,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
         end
         
     end
@@ -1406,7 +1407,7 @@ classdef analysis < handle
                 % get local open pore value
                 numpts = round(1e-3/obj.sigdata.si); % try for 1ms worth of data
                 lag = round(max(1e-4, 0.25*(1/obj.in.filter))/obj.sigdata.si); % # data points, to skip any filter droop time
-                if i>1 && regions(i-1,2)<regions(i,1)
+                if i>1 && regions(i-1,2)+lag<regions(i,1)-lag
                     open = obj.sigdata.get(max(regions(i-1,2)+lag,regions(i,1)-numpts-lag):max(1,regions(i,1)-lag)); % don't overlap previous event
                 else
                     open = obj.sigdata.get(max(1,regions(i,1)-numpts-lag):max(1,regions(i,1)-lag));
@@ -1495,7 +1496,7 @@ classdef analysis < handle
             % object
             disp(obj.in.files)
             if isempty(obj.in.voltage)
-                obj.in.voltage = a.getAppliedVoltages();
+                obj.in.voltage = obj.getAppliedVoltages();
             end
             events = obj.getEvents(obj.in.trange); % do event finding
             events = obj.attachMetadata(events, obj.metadata); % metadata

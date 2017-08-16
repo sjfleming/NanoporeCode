@@ -96,15 +96,15 @@ function [Vs, Is] = plot_iv(filename)
     fitLine = plot(Vs,ys,'LineStyle','--');
     legend(fitLine,sprintf('\\sigma = %4.4g nS',1000*coeffs(1)),'Location','northwest');
     name = [filename(end-27:end-20), '\_', filename(end-7:end-4)];
-    annotation('textbox', [0.65 0.2 0 0], 'String', name, 'FontSize', 20);
+    annotation('textbox', [0.65 0.2 0 0], 'String', name, 'FontSize', 14);
     
-    xlabel('Voltage (mV)','FontSize',28)
-    ylabel('Current (nA)','FontSize',28)
-    title('IV curve','FontSize',24)
+    xlabel('Voltage (mV)','FontSize',14)
+    ylabel('Current (nA)','FontSize',14)
+    title('IV curve','FontSize',14)
     set(gca,'LooseInset',[0 0 0 0]) % the all-important elimination of whitespace!
     set(gca,'OuterPosition',[0 0 0.99 1]) % fit everything in there
     set(h,'Position',[100 500 600 500]) % size the figure
-    set(gca,'FontSize',24)
+    set(gca,'FontSize',14)
     xlim([-200 200])
     
     assignin('base',['V_' filename(end-5:end-4)],Vs)
