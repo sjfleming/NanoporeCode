@@ -67,12 +67,6 @@ classdef ssDNA_MCMC < handle
             obj.boundary = obj.in.boundary;
             obj.force_function = obj.in.force_function;
             obj.force_values = obj.in.force_values;
-            if ~isempty(obj.in.initial_coordinates)
-                obj.initial_coordinates = obj.in.initial_coordinates;
-            else
-                obj.initial_coordinates = [(0:obj.N-1)'*obj.l_k, zeros(obj.N,2)];
-            end
-            obj.current_coords = obj.initial_coordinates;
             obj.step = obj.in.step;
             
             % initialize counters
@@ -86,9 +80,16 @@ classdef ssDNA_MCMC < handle
             obj.count.accepted.crankshafts = 0;
             
             % initialize configuration of ssDNA
-            if isempty(obj.coordinates)
-                
+            if ~isempty(obj.in.initial_coordinates)
+                obj.initial_coordinates = obj.in.initial_coordinates;
+            else
+                obj.initial_coordinates = [zeros(obj.N,2), (0:obj.N-1)'*obj.l_k];
+                obj.initial_coordinates = obj.initial_coordinates + ...
+                    repmat(obj.fixed_points{2} - ...
+                        obj.initial_coordinates(ceil(obj.fixed_points{1}*obj.l_b/obj.l_k),:), ...
+                        obj.N,1);
             end
+            obj.current_coords = obj.initial_coordinates;
         end
         
         function run(obj, samples)
@@ -135,7 +136,8 @@ classdef ssDNA_MCMC < handle
             % this is probably the worst way to do it... work on that
             if ~isempty(obj.fixed_points)
                 for i = 1:numel(obj.fixed_points)/2
-                    test_coords(obj.fixed_points{2*i-1},:) = obj.fixed_points{2*i};
+                    test_coords(ceil(obj.fixed_points{2*i-1}*obj.l_b/obj.l_k),:) = ...
+                        obj.fixed_points{2*i};
                 end
             end
         end
@@ -210,11 +212,10 @@ classdef ssDNA_MCMC < handle
             % imposed as boundary conditions
             U_f = 0;
             if ~isempty(obj.boundary) % if there's a boundary function
-                for i = 1:obj.N % go through beads
-                    if ~obj.boundary(coords(i,:)) % if one is outside
-                        U_f = Inf; % set energy to infinity
-                        return;
-                    end
+                inside_logic = arrayfun(@(x) obj.boundary(coords(x,:)), 1:size(coords,1)); % all beads
+                if sum(~inside_logic)>0 % if even one is outside
+                    U_f = Inf; % set energy to infinity
+                    return;
                 end
             end
             if ~isempty(obj.force_function)
