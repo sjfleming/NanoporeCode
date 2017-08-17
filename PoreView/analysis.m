@@ -904,7 +904,7 @@ classdef analysis < handle
             addOptional(p, 'voltagescaling', 1, checkPosNum); % true voltage (mV) = recorded voltage value * voltagescaling
             addOptional(p, 'savefile', '', @(x) ischar(x)); % true voltage (mV) = recorded voltage value * voltagescaling
             addOptional(p, 'title', 'Scatter plot', @(x) ischar(x)); % title on plots
-            addOptional(p, 'figure', defaultFigureNum, @isvalid); % figure to plot things on
+            addOptional(p, 'figure', defaultFigureNum, @ishghandle); % figure to plot things on
             addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
             addOptional(p, 'inverted', false, @(x) islogical(x)); % scatter plots: inverted true plots \Delta I / I_0
             addOptional(p, 'eventblockage', 'mean', @(x) any(cellfun(@(y) strcmp(x,y), {'mean','first','last'}))); % what to plot for blockage data
