@@ -84,10 +84,12 @@ classdef ssDNA_MCMC < handle
                 obj.initial_coordinates = obj.in.initial_coordinates;
             else
                 obj.initial_coordinates = [zeros(obj.N,2), (0:obj.N-1)'*obj.l_k];
-                obj.initial_coordinates = obj.initial_coordinates + ...
-                    repmat(obj.fixed_points{2} - ...
-                        obj.initial_coordinates(ceil(obj.fixed_points{1}*obj.l_b/obj.l_k),:), ...
-                        obj.N,1);
+                if numel(obj.fixed_points) > 1 % if there is at least one fixed point (one point is two elements)
+                    obj.initial_coordinates = obj.initial_coordinates + ...
+                        repmat(obj.fixed_points{2} - ...
+                            obj.initial_coordinates(ceil(obj.fixed_points{1}*obj.l_b/obj.l_k),:), ...
+                            obj.N,1);
+                end
             end
             obj.current_coords = obj.initial_coordinates;
         end
@@ -274,7 +276,7 @@ classdef ssDNA_MCMC < handle
                 / obj.count.proposed.crankshafts * 100) '% accepted'])
         end
         
-        function plot_snapshot(obj, time_index, fig)
+        function f = plot_snapshot(obj, time_index, fig)
             % plot a 3d line plot of ssDNA for given time index in figure
             figure(fig)
             hold on
@@ -282,15 +284,43 @@ classdef ssDNA_MCMC < handle
                 obj.coordinates{time_index}(:,2), ...
                 obj.coordinates{time_index}(:,3),'o-')
             axis equal
+            f = fig;
         end
         
-        function plot_overlay(obj, thinning, fig)
+        function f = plot_overlay(obj, thinning, fig)
             % plot a 3d line plot of ssDNA at (all) timepoints in figure
             % if thinning is 5, plots every fifth timepoint
-            for i = 1:thinning:numel(obj.coordinates)
+            for i = thinning:thinning:numel(obj.coordinates)
                 obj.plot_snapshot(i, fig);
             end
+            zlim([min(cellfun(@(d) min(d(:,3)), obj.coordinates)), max(cellfun(@(d) max(d(:,3)), obj.coordinates))])
+            xlim([-5, 5])
+            ylim([-5, 5])
             axis equal
+            f = fig;
+        end
+        
+        function f = plot_value(obj, fcn)
+            % plot a function to monitor the
+            % evolution of the MCMC sampler
+            f = figure();
+            x = 1:numel(obj.coordinates);
+            y = cellfun(@(x) fcn(x), obj.coordinates);
+            plot(x,y,'k')
+            title(['Function: ' func2str(fcn)])
+            xlabel('Sample number')
+            ylabel('Function value')
+        end
+        
+        function f = plot_correlation(obj, fcn)
+            % plot a function to monitor the
+            % evolution of the MCMC sampler
+            f = figure();
+            y = cellfun(@(x) fcn(x), obj.coordinates);
+            autocorr(y,min(numel(obj.coordinates)/10,5000))
+            title(['Correlation: ' func2str(fcn)])
+            xlabel('Sample number')
+            ylabel('Correlation')
         end
 
         function in = parseInputs(obj,varargin)
