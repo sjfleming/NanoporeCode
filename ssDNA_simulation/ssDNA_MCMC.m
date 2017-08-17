@@ -33,6 +33,7 @@ classdef ssDNA_MCMC < handle
         boundary;
         force_function;
         force_values;
+        interaction_function;
         % initial ssDNA coordinates
         initial_coordinates;
         % all inputs from user
@@ -67,6 +68,7 @@ classdef ssDNA_MCMC < handle
             obj.boundary = obj.in.boundary;
             obj.force_function = obj.in.force_function;
             obj.force_values = obj.in.force_values;
+            obj.interaction_function = obj.in.interaction_function;
             obj.step = obj.in.step;
             
             % initialize counters
@@ -109,7 +111,7 @@ classdef ssDNA_MCMC < handle
                 U = obj.energy(test_coords);
 
                 % accept or reject proposal, and either way take a sample
-                if r < exp(-(U-obj.current_energy + obj.constraint_energy(test_coords))/obj.kT)
+                if r < exp(-(U-obj.current_energy + obj.constraint_energy(test_coords))/obj.kT) % take constraints into account
                     obj.accept(test_coords, U);
                 end
                 obj.sample();
@@ -147,7 +149,7 @@ classdef ssDNA_MCMC < handle
         function test_coords = propose_translation(obj)
             % propose a "translation" move
             % which beads are involved
-            inds = sort(randi(obj.N,1,2)); % two integers from 1 to N, in order
+            inds = sort(randi(obj.N,1,2)); % two integers from 1 to N, in order, can be the same
             delta = randn(1,3);
             unit = delta/sqrt(sum(delta.^2));
             delta_scaled = unit * sqrt(obj.step * 2 * obj.kT / obj.k_s * pi / 2) * rand(1)*obj.step; % pi is for avg cos(theta)^2, randn is for no hard max
@@ -177,7 +179,7 @@ classdef ssDNA_MCMC < handle
         function test_coords = propose_crankshaft(obj)
             % propose a "crankshaft" move% which beads are involved
             % which beads are involved
-            inds = sort(randi(obj.N,1,2)); % two integers from 1 to N, in order
+            inds = sort(randsample(obj.N,2)); % two integers from 1 to N, in order, not the same
             axis = obj.current_coords(inds(2),:) - obj.current_coords(inds(1),:); % vector between the two beads
             theta = rand * 2*pi; % random number on [0, 2*pi]
             R = rot_aa(axis, theta); % rotation maxtrix for rotating around an axis by angle theta
@@ -194,12 +196,8 @@ classdef ssDNA_MCMC < handle
             lengths = sqrt(sum(vectors.^2,2)); % vector lengths as [l1; l2; l3; ...]
             U_s = 1/2 * obj.k_s * sum((lengths - obj.l_k).^2); % stretching
             cosTheta = obj.calculate_angles(coords);
-            % U_b = -1 * obj.k_b * (sum(cosTheta) - sum(obj.calculateAngles(obj.initial_coordinates)));
             U_b = -1 * obj.k_b * sum(cosTheta);
-            % deltaU = U_s + U_b + obj.constraintEnergy(coords) - obj.current_energy;
-            U = U_s + U_b; % + obj.constraintEnergy(coords);
-            % U = exp(-deltaU / obj.kT);
-            % U = U_b / obj.kT;
+            U = U_s + U_b; % energy just from these two contributions
         end
         
         function cosTheta = calculate_angles(obj,coords)
@@ -226,6 +224,9 @@ classdef ssDNA_MCMC < handle
                 end
             elseif ~isempty(obj.force_values)
                 
+            end
+            if ~isinf(U_f) && ~isempty(obj.interaction_function) % shortcut if we're already a no go
+                U_f = U_f + obj.interaction_function(coords);
             end
         end
         
@@ -337,6 +338,7 @@ classdef ssDNA_MCMC < handle
             addOptional(p, 'boundary', [], @(x) islogical(feval(x,[0,0,0]))); % logical function: true inside boundary, false outside
             addOptional(p, 'force_function', [], @(x) isnumeric(feval(x,[0,0,0]))); % numeric function that gives force (pN) as a function of location (3d nm)
             addOptional(p, 'force_values', [], @(x) isnumeric(feval(x,[0,0,0]))); % values from which to interpolate force (pN)
+            addOptional(p, 'interaction_function', [], @(x) isnumeric(feval(x,[0,0,0; -10,-10,-10]))); % numeric function that gives energy (pN*nm) as a function of location (3d nm)
             addOptional(p, 'initial_coordinates', [], @(x) all(isnumeric(x)) && size(x,2)==3); % starting ssDNA coordinates, for Kuhn segments: [x1,y1,z1; ...; xN,yN,zN] (nm)
             addOptional(p, 'bases', 30, @(x) x>6); % number of bases
             addOptional(p, 'step', 3, @(x) x>0); % step size, in an energy ratio to kT
