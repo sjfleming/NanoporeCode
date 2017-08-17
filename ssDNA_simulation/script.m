@@ -43,7 +43,7 @@ init = [0         0         0
 % count number of bases in pore, from z = 0 to z = -8
 % at various voltages
 
-voltages = [45:5:180];
+voltages = [60:20:180];
 n = cell(numel(voltages),1);
 thinning = 2500;
 
@@ -90,3 +90,36 @@ ylabel('fractional change in number of bases in pore')
 xlabel('voltage (mV)')
 title('ssDNA MCMC simulation')
 ylim([0.08 0.3])
+
+%% 
+
+%%
+
+% count number of bases in pore, from z = 0 to z = -8
+% at various voltages
+% with interactions
+
+voltages = 60:20:180;
+n = cell(numel(voltages),1);
+thinning = 2000;
+
+for f = 1:numel(voltages)
+
+disp(['V = ' num2str(voltages(f))])
+mc = ssDNA_MCMC('bases',30,'fixed_points',{1,[0,0,0]},'force_function',@(d) 18*(voltages(f)/100)*d(3), ...
+    'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,10,0.5,4.1*10,0.5)); % 10kT for base 11
+mc.run(50000);
+
+n{f} = [];
+
+for i = thinning:thinning:numel(mc.coordinates)
+    
+    j = find(mc.coordinates{i}(:,3)<-8,1,'first'); % index of first bead past pore
+    granularity = 100;
+    z = linspace(mc.coordinates{i}(j-1,3),mc.coordinates{i}(j,3),granularity); % list
+    k = find(z<-8,1,'first');
+    n{f}(end+1) = mc.l_k/mc.l_b * ((j-3) + (k-1)/granularity); % n = number of bases, first bead is the endpoint
+    
+end
+
+end

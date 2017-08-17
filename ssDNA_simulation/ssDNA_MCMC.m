@@ -109,10 +109,12 @@ classdef ssDNA_MCMC < handle
 
                 % caluclate energy of proposed move
                 U = obj.energy(test_coords);
+                U_i = obj.interaction_energy(test_coords);
+                U_constraints = obj.constraint_energy(test_coords);
 
                 % accept or reject proposal, and either way take a sample
-                if r < exp(-(U-obj.current_energy + obj.constraint_energy(test_coords))/obj.kT) % take constraints into account
-                    obj.accept(test_coords, U);
+                if r < exp(-(U + U_i + U_constraints - obj.current_energy)/obj.kT) % take constraints into account
+                    obj.accept(test_coords, U+U_i); % don't include constraint energy, which can be infinite!
                 end
                 obj.sample();
             
@@ -225,8 +227,13 @@ classdef ssDNA_MCMC < handle
             elseif ~isempty(obj.force_values)
                 
             end
-            if ~isinf(U_f) && ~isempty(obj.interaction_function) % shortcut if we're already a no go
-                U_f = U_f + obj.interaction_function(coords);
+        end
+        
+        function U_i = interaction_energy(obj, coords)
+            % calculate the energy having to do with input interactions
+            U_i = 0;
+            if ~isempty(obj.interaction_function) % shortcut if we're already a no go
+                U_i = U_i + obj.interaction_function(coords);
             end
         end
         
