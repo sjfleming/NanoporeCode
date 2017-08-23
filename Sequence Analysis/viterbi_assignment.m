@@ -1,11 +1,14 @@
 function out = viterbi_assignment(observations, states, p, init)
-% viterbi_assignment(observations, states)
+% viterbi_assignment(observations, states, p, init)
 % assigns a sequence of observations to a given path through the possible
 % state space in a hidden Markov model
-% observations is a vector struct of observed current levels
-% observations struct contains 'level_mean' and 'level_stdv' fields
-% states is a vector struct of model current levels
-% states struct contains 'level_mean', 'level_stdv', and 'stdv_mean' fields
+% observations is a cell array with a struct of observed current levels
+% observations each struct contains 'level_mean' and 'level_stdv' fields
+% states is a cell array with a struct of model current levels
+% states structs contain 'level_mean', 'level_stdv', and 'stdv_mean' fields
+% p are the transition probabilities: p.p_stay, p.p_back, p.pskip, and
+% p.p_forward.  can be empty []
+% init is the probability vector for initial starting level. can be [].
 
 % Stephen Fleming
 % 7/24/16
@@ -30,20 +33,20 @@ function out = viterbi_assignment(observations, states, p, init)
     % emission probability function, 'emission'
     % not a matrix because we don't have discrete observation states
     % (probability of an observation given the underlying state)
-    p_deep = max(0.001, sum(arrayfun(@(x) x.level_mean, observations) < 0.8*min(arrayfun(@(x) x.level_mean, states))) / numel(observations)); % a priori probability of observing a deep block
+    p_deep = max(0.001, sum(cellfun(@(x) x.level_mean, observations) < 0.8*min(cellfun(@(x) x.level_mean, states))) / numel(observations)); % a priori probability of observing a deep block
     p_noise = max(0.01, (numel(observations)-numel(states)-p_stay*numel(observations)) / numel(observations)); % a priori probability of a meaningless level in the data
 
-    I_range = [min(arrayfun(@(x) x.level_mean, observations)), max(arrayfun(@(x) x.level_mean, observations))];
+    I_range = [min(cellfun(@(x) x.level_mean, observations)), max(cellfun(@(x) x.level_mean, observations))];
     p_scale = 1;
     p_offset = 0;
     emission = @(obs,state) emission_probs(obs, I_range, state, p_noise, p_deep);
     % pre-compute all values for speed
-    logEm = log10(cell2mat(arrayfun(@(y) arrayfun(@(x) emission(x,y), observations), states, 'uniformoutput', false)')');
+    logEm = log10(cell2mat(cellfun(@(y) cellfun(@(x) emission(x,y), observations), states, 'uniformoutput', false)')');
     
     % initial state vector init, probabilities
     % (probabilities of starting in each state)
     if isempty(init)
-        init = [0.9, 0.05, 0.03, 0.012, 0.005, 0.002, 0.001, 1e-10*ones(1, max(0,numel(states)-7))];
+        init = exp(-(1:numel(states))/5e-1)/sum(exp(-(1:numel(states))/5e-1));
         if numel(init)>numel(states)
             init = init(1:numel(states)) / sum(init(1:numel(states))); % concatenate and fix to sum to 1
         end
@@ -55,7 +58,7 @@ function out = viterbi_assignment(observations, states, p, init)
     % dimension 3 contains: prob, pointer i, pointer j in that order
     T = zeros(numel(states), numel(observations), 3);
     % initial values
-    T(:,1,1) = log10( init .* arrayfun(@(x) emission(observations(1), x), states) );
+    T(:,1,1) = log10( init .* cellfun(@(x) emission(observations{1}, x), states) );
     
     % fill the big matrix
     % each element (i,j,1) stores the log prob of the most likely path so far
@@ -93,9 +96,9 @@ function out = viterbi_assignment(observations, states, p, init)
     % block, or noise
     state_type = cell(1,numel(observations));
     for i = 1:numel(z)
-        reg = emission_probs(observations(i), I_range, states(z(i)), 0, 0);
-        noi = emission_probs(observations(i), I_range, states(z(i)), 0.5, 0);
-        dee = emission_probs(observations(i), I_range, states(z(i)), 0, 0.5);
+        reg = emission_probs(observations{i}, I_range, states{z(i)}, 0, 0);
+        noi = emission_probs(observations{i}, I_range, states{z(i)}, 0.5, 0);
+        dee = emission_probs(observations{i}, I_range, states{z(i)}, 0, 0.5);
         if and(reg>noi, reg>dee)
             state_type{i} = 'normal';
         elseif and(noi>reg, noi>dee)
@@ -109,7 +112,7 @@ function out = viterbi_assignment(observations, states, p, init)
     
     % package the output
     out.state_indices = z;
-    out.state_sequence = arrayfun(@(x) states(x), z);
+    out.state_sequence = arrayfun(@(x) states{x}, z);
     out.state_type = state_type;
     out.log_prob_matrix = T;
     out.observations = observations;

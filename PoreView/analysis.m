@@ -133,11 +133,15 @@ classdef analysis < handle
             
             % eventlogic
             eventlogic = struct();
-            eventlogic.duration = @(x) x > 1;
+            eventlogic.duration = @(x) x > 2;
             eventlogic.ended_manually = @(x) x == false;
             eventlogic.fractional_block_mean = @(x) x < 0.4 && x > 0.05;
+            logic = analysis.getLogic(events, 'eventlogic', eventlogic);
             
-            mol = events(analysis.getLogic(events, 'eventlogic', eventlogic));
+            % further logic for a division based on current standard dev
+            logic2 = cellfun(@(x) x.current_std/x.open_pore_current_mean > 0.04, events);
+            
+            mol = events(logic & logic2);
         end
         
         function logic = getLogic(events, varargin)
@@ -257,12 +261,17 @@ classdef analysis < handle
             
         end
         
-        function events = doIterativeScalingAlignment(events)
+        function events = doIterativeScalingAlignment(events, seq)
             % iterates between model scaling and level alignment until
             % convergence is reached.  helps improve model scaling.
             
             % sequence
-            seq = 'RRRRRTTTTTRRRRGGTTGTTTCTGTTGGTGCTGATATTGCGGCGTCTGCTTGGGTGTTTAACCT'; % SK23
+            if strcmp(seq,'SK23')
+                seq = 'RRRRRTTTTTRRRRGGTTGTTTCTGTTGGTGCTGATATTGCGGCGTCTGCTTGGGTGTTTAACCT'; % SK23
+            elseif strcmp(seq,'adapt_001')
+                %seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGAACTTTACAAGGAATTTCCT'; % adapter_SF, or adapt_001
+                seq = 'RRRRRTTTTTTTTTTTTGGGAAATTTTTGGGAAATTTTCGATCACTGGA'; % adapter_SF, or adapt_001, parts possible to read
+            end
             
             for i = 1:numel(events)
                 
@@ -270,18 +279,25 @@ classdef analysis < handle
                 events{i}.sequence = seq;
                 levs = cellfun(@(x) x.current_mean, events{i}.levels);
                 hicut = 0.6 * abs(events{i}.open_pore_current_mean);
+                %hicut = 0.2 * abs(events{i}.open_pore_current_mean);
                 lowcut = 0.05 * abs(events{i}.open_pore_current_mean);
-                [model_levels, model_levels_std] = ...
-                    get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
-                    abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
-%                 [model_levels, model_levels_std,~,~] = ...
-%                     get_model_levels_M2(events{i}.sequence, levs(levs>lowcut & levs<hicut));
-                
+%                 [model_levels, model_levels_std] = ...
+%                     get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
+%                     abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
+                if strcmp(events{i}.pore,'M2-MspA')
+                    [model_levels, model_levels_std, model_levels_std_mean,~] = ...
+                        get_model_levels_M2(events{i}.sequence, levs(levs>lowcut & levs<hicut));
+                elseif strcmp(events{i}.pore,'M3-MspA')
+                    [model_levels, model_levels_std, model_levels_std_mean] = ...
+                        get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
+                        abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
+                end
                 % save the initial scaling
                 events{i}.model_levels = cell(numel(model_levels),1);
                 for j = 1:numel(model_levels)
                     events{i}.model_levels{j}.mean = model_levels(j);
                     events{i}.model_levels{j}.stdev = model_levels_std(j);
+                    events{i}.model_levels{j}.stdv_mean = model_levels_std_mean(j);
                 end
                 
                 % iterate alignment and scaling until convergence is achieved
@@ -290,7 +306,7 @@ classdef analysis < handle
                 dfit = 1;
                 while dfit > stop_criterion && numel(lsqdist) < 20
                     % do a level alignment
-                    events{i} = obj.doLevelAlignment(events{i});
+                    events{i} = analysis.doLevelAlignment(events{i});
                     % calculate least-squares distance per measured level
                     logic = ~isnan(events{i}.level_alignment.model_levels_measured_mean_currents); % these levels are not missing
                     lsqdist(end+1) = sum((events{i}.level_alignment.model_levels_measured_mean_currents(logic) ...
@@ -313,6 +329,7 @@ classdef analysis < handle
                     for j = 1:numel(events{i}.model_levels)
                         events{i}.model_levels{j}.mean = (events{i}.model_levels{j}.mean-f.p2)/f.p1;
                         events{i}.model_levels{j}.stdev = events{i}.model_levels{j}.stdev/f.p1;
+                        events{i}.model_levels{j}.stdv_mean = events{i}.model_levels{j}.stdv_mean/f.p1;
                     end
                 end
                 
@@ -336,18 +353,47 @@ classdef analysis < handle
                 return;
             end
             event.level_alignment = struct(); % clear any previous alignment
-            % get reasonable levels
-            [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(cellfun(@(x) x.mean, event.model_levels), ...
-                cellfun(@(x) x.stdev, event.model_levels), cellfun(@(x) x.current_mean, event.levels), ...
-                cellfun(@(x) x.duration, event.levels), 0.18*abs(event.open_pore_current_mean));
-            event.level_alignment.model_level_assignment = mod_inds;
-            event.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
-            event.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
-            event.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2), ...
-                cellfun(@(x) x.duration, event.levels(mod_type~=2)), ...
+%             % get reasonable levels
+%             [mod_inds, mod_type, lvl_accum, P, ks] = align_fb(cellfun(@(x) x.mean, event.model_levels), ...
+%                 cellfun(@(x) x.stdev, event.model_levels), cellfun(@(x) x.current_mean, event.levels), ...
+%                 cellfun(@(x) x.duration, event.levels), 0.18*abs(event.open_pore_current_mean));
+%             event.level_alignment.model_level_assignment = mod_inds;
+%             event.level_alignment.level_type = mod_type; % 1 is normal, 2 is noise, 3 is deep block
+%             event.level_alignment.model_levels_measured_mean_currents = lvl_accum; % mean of level currents for each level assigned to a given model level
+%             event.level_alignment.model_levels_measured_total_duration = accumarray(mod_inds(mod_type~=2), ...
+%                 cellfun(@(x) x.duration, event.levels(mod_type~=2)), ...
+%                 size(event.model_levels),@sum,nan); % total time in each level
+%             event.level_alignment.P = P; % probabilities in the alignment matrix
+%             event.level_alignment.ks = ks; % state index in the alignment matrix
+            
+            % use a viterbi alignment
+            observations = cell(1,numel(event.levels));
+            states = cell(1,numel(event.model_levels));
+            for i = 1:numel(event.levels)
+                observations{i}.level_mean = event.levels{i}.current_mean;
+                observations{i}.level_stdv = event.levels{i}.current_std;
+            end
+            for i = 1:numel(event.model_levels)
+                states{i}.level_mean = event.model_levels{i}.mean;
+                states{i}.level_stdv = event.model_levels{i}.stdev;
+                states{i}.stdv_mean = event.model_levels{i}.stdv_mean;
+            end
+            out = viterbi_assignment(observations, states, [], []);
+            
+            % assign outputs
+            event.level_alignment.model_level_assignment = out.state_indices;
+            event.level_alignment.level_type = out.state_type; % 1 is normal, 2 is noise, 3 is deep block
+            normal_levels = cellfun(@(x) strcmp(x,'normal'), out.state_type);
+            event.level_alignment.model_levels_measured_mean_currents = accumarray(out.state_indices(normal_levels)', ...
+                cellfun(@(x) x.current_mean, event.levels(normal_levels)), ...
+                size(event.model_levels),@nanmean,nan); % mean of level currents for each level assigned to a given model level
+            event.level_alignment.model_levels_measured_median_currents = accumarray(out.state_indices(normal_levels)', ...
+                cellfun(@(x) x.current_median, event.levels(normal_levels)), ...
+                size(event.model_levels),@nanmedian,nan); % median of level currents for each level assigned to a given model level
+            event.level_alignment.model_levels_measured_total_duration = accumarray(out.state_indices(normal_levels)', ...
+                cellfun(@(x) x.duration, event.levels(normal_levels)), ...
                 size(event.model_levels),@sum,nan); % total time in each level
-            event.level_alignment.P = P; % probabilities in the alignment matrix
-            event.level_alignment.ks = ks; % state index in the alignment matrix
+            event.level_alignment.log_prob_matrix = out.log_prob_matrix; % probabilities in the alignment matrix
             
             % also store the level means and timing after alignment, by
             % which i mean: combine adjacent "stay" levels
@@ -355,15 +401,11 @@ classdef analysis < handle
             lmed = [];
             lstd = [];
             ltime = [];
-            tmp = cellfun(@(x) x.current_mean, event.levels);
-            level_means_no_noise = tmp(mod_type==1);
-            tmp = cellfun(@(x) x.current_median, event.levels);
-            level_medians_no_noise = tmp(mod_type==1);
-            tmp = cellfun(@(x) x.current_std, event.levels);
-            level_stds_no_noise = tmp(mod_type==1);
-            tmp = cell2mat(cellfun(@(x) [x.start_time x.end_time], event.levels, 'uniformoutput', false));
-            level_timing_no_noise = tmp(mod_type==1,:);
-            mod_inds_no_noise = mod_inds(mod_type==1);
+            level_means_no_noise = cellfun(@(x) x.current_mean, event.levels(normal_levels));
+            level_medians_no_noise = cellfun(@(x) x.current_median, event.levels(normal_levels));
+            level_stds_no_noise = cellfun(@(x) x.current_std, event.levels(normal_levels));
+            level_timing_no_noise = cell2mat(cellfun(@(x) [x.start_time x.end_time], event.levels(normal_levels), 'uniformoutput', false));
+            mod_inds_no_noise = out.state_indices(normal_levels);
             % go through each level
             i = 1;
             while i <= numel(mod_inds_no_noise)
@@ -789,6 +831,8 @@ classdef analysis < handle
             mod_type = event.level_alignment.level_type; % 1 is normal, 2 is noise, 3 is deep block
             lvl_accum = event.level_alignment.model_levels_measured_mean_currents; % mean of level currents for each level assigned to a given model level
             lvls = cellfun(@(x) x.current_mean, event.levels);
+            noise_levels = arrayfun(@(x) strcmp(x,'noise'), mod_type);
+            deep_levels = arrayfun(@(x) strcmp(x,'deep'), mod_type);
             
             subplot(3,1,1);
             plot(cellfun(@(x) x.mean, event.model_levels),'o-','LineWidth',2)
@@ -808,8 +852,8 @@ classdef analysis < handle
             end
             hold on
             xx = 1:numel(event.levels);
-            plot(xx(mod_type==2),cellfun(@(x) x.current_mean, event.levels(mod_type==2)),'rx','MarkerSize',10)
-            plot(xx(mod_type==3),cellfun(@(x) x.current_mean, event.levels(mod_type==3)),'go','MarkerSize',10)
+            plot(xx(noise_levels),cellfun(@(x) x.current_mean, event.levels(noise_levels)),'rx','MarkerSize',10) % noise
+            plot(xx(deep_levels),cellfun(@(x) x.current_mean, event.levels(deep_levels)),'go','MarkerSize',10) % deep
             ylabel('Current (pA)')
             xlabel('Measured level')
             xlim([0 numel(lvls)+1])
@@ -817,13 +861,14 @@ classdef analysis < handle
             title('Matching each measured level to a model state')
             
             subplot(3,1,3);
-            imagesc(1.03.^(event.level_alignment.P/2)) % scales so image shows up well
+            imagesc(1.03.^(event.level_alignment.log_prob_matrix(:,:,1)/2)) % scales so image shows up well
             hold on
-            plot(1:numel(lvls),event.level_alignment.ks,'r','LineWidth',3);
+            plot(1:numel(lvls),event.level_alignment.model_level_assignment,'r','LineWidth',3);
             title('Probability Matrix')
             ylabel('State')
             xlabel('Level Number')
             set(gca,'FontSize',14)
+            set(gcf,'position',[-1184        -180        1173        1811])
             
         end
         

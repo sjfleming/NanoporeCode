@@ -6,8 +6,8 @@ function mol = batch_sliding_analysis(date,filenums,temp,KCl_molarity,ADPNP_mola
 % analysis of sliding data in automatic batches
 
 % initialize
-addpath('/Users/Stephen/GitHub/NanoporeCode/PoreView/');
-folder = '/Users/Stephen/Documents/Stephen/Research/Data/Biopore/';
+addpath('C:\Stephen\GitHub\NanoporeCode\PoreView');
+folder = 'C:\Stephen\Research\Data\Biopore\';
 
 % example:
 % date = '20160121';
