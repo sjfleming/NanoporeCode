@@ -277,6 +277,10 @@ classdef analysis < handle
                 
                 % get the initial predicted levels from oxford
                 events{i}.sequence = seq;
+                if ~isfield(events{i},'levels')
+                    disp('No levels!  Do level finding first, using analysis.findEventLevels');
+                    return;
+                end
                 levs = cellfun(@(x) x.current_mean, events{i}.levels);
                 hicut = 0.6 * abs(events{i}.open_pore_current_mean);
                 %hicut = 0.2 * abs(events{i}.open_pore_current_mean);
