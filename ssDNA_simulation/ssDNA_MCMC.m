@@ -60,8 +60,8 @@ classdef ssDNA_MCMC < handle
             obj.n = obj.in.bases;
             obj.l_b = obj.in.l_b;
             obj.L = obj.n * obj.in.l_b;
-            obj.N = ceil(obj.L/obj.in.l_k) + 1;
-            obj.l_k = obj.L / (obj.N-1); % use the calculated length for segments
+            obj.l_k = obj.in.l_k;
+            obj.N = ceil((obj.L-obj.l_b)/obj.l_k)+1; % N has at least as many beads as needed
             obj.T = obj.in.T;
             obj.kT = obj.in.T * 1.38e-23  / (1e-21); % in pN*nm
             obj.fixed_points = obj.in.fixed_points;
@@ -83,7 +83,7 @@ classdef ssDNA_MCMC < handle
             
             % initialize configuration of ssDNA
             if ~isempty(obj.in.initial_coordinates)
-                obj.initial_coordinates = obj.in.initial_coordinates;
+                obj.initial_coordinates = obj.in.initial_coordinates(1:obj.N,:);
             else
                 obj.initial_coordinates = [zeros(obj.N,2), (0:obj.N-1)'*obj.l_k];
                 if numel(obj.fixed_points) > 1 % if there is at least one fixed point (one point is two elements)

@@ -1,4 +1,4 @@
-function U = m2_constriction_interaction(coords, bases, length, energy, l_b)
+function U = m2_constriction_interaction(coords, bases, length, energy, l_b, l_k)
 % crude m2-mspa nanopore constriction interaction energy function
 % coords = [x1,y1,z1; x2,y2,z2; ...] each bead
 % bases = [b1, ...] each base that has this interaction
@@ -18,7 +18,7 @@ function U = m2_constriction_interaction(coords, bases, length, energy, l_b)
     zcon = -7;
     
     % position of bases in z, roughly
-    z_locs = arrayfun(@(x) interp1(1:size(coords,1),coords(:,3),l_b*bases(x),'spline'), 1:numel(bases)); % this interpolates in z
+    z_locs = arrayfun(@(x) interp1((0:size(coords,1)-1)*l_k+l_b,coords(:,3),l_b*bases(x),'spline'), 1:numel(bases)); % this interpolates in z
     % NOTE: based on fooling around, i suspect an off-by-one here...
     
     % are they in the interaction zone?

@@ -108,8 +108,8 @@ for f = 1:numel(voltages)
 
 disp(['V = ' num2str(voltages(f))])
 mc = ssDNA_MCMC('bases',28,'fixed_points',{1,[0,0,0]},'force_function',@(d) 18*(voltages(f)/100)*d(3), ...
-    'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,10,0.5,4.1*0,0.5,1.5)); % 10kT for base 11
-mc.run(100000);
+    'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,10,0.5,4.1*10,0.5,1.5)); % 10kT for base 11
+mc.run(10000);
 
 n{f} = [];
 b{f} = [];
@@ -132,9 +132,8 @@ end
 %% plot base in pore constriction
 
 figure()
-errorbar(voltages,cellfun(@(x) mean(x), b),cellfun(@(x) std(x), b),'o')
+errorbar(voltages,mean(b),std(b)
 set(gca,'fontsize',12,'outerposition',[0.01,0.01,0.98,0.98],'looseinset',[0,0,0,0])
-xlim([40 200])
 ylabel('base in pore constriction')
 xlabel('voltage (mV)')
 title('ssDNA MCMC simulation')
