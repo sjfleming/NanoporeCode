@@ -102,13 +102,13 @@ ylim([0.08 0.3])
 voltages = 60:20:180;
 n = cell(numel(voltages),1);
 b = cell(numel(voltages),1);
-thinning = 2000;
+thinning = 2500;
 
 for f = 1:numel(voltages)
 
 disp(['V = ' num2str(voltages(f))])
 mc = ssDNA_MCMC('bases',28,'fixed_points',{1,[0,0,0]},'force_function',@(d) 18*(voltages(f)/100)*d(3), ...
-    'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,10,0.5,4.1*0,0.5,1.5)); % 10kT for base 11
+    'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,14,0.5,4.1*5,0.5,1.5)); % 5kT for base 14
 mc.run(100000);
 
 n{f} = [];
@@ -131,10 +131,52 @@ end
 
 %% plot base in pore constriction
 
-figure()
-errorbar(voltages,cellfun(@(x) mean(x), b),cellfun(@(x) std(x), b),'o')
+%figure()
+errorbar(voltages,cellfun(@(x) mean(x), b),cellfun(@(x) std(x)/sqrt(numel(x)), b),'o')
 set(gca,'fontsize',12,'outerposition',[0.01,0.01,0.98,0.98],'looseinset',[0,0,0,0])
 xlim([40 200])
 ylabel('base in pore constriction')
 xlabel('voltage (mV)')
 title('ssDNA MCMC simulation')
+
+%%
+
+% count number of bases in pore, from z = 0 to z = -8
+% at various voltages
+% with interactions
+
+voltage = 160;
+positions = 9:17;
+n = cell(numel(voltages),1);
+b = cell(numel(voltages),1);
+thinning = 2500;
+independent_samples = 100;
+
+for f = 1:numel(positions)
+    
+    n{f} = [];
+    b{f} = [];
+    
+    for k = 1:round(independent_samples/(1e5/thinning))
+    
+        disp(['p = ' num2str(positions(f))])
+        mc = ssDNA_MCMC('bases',28,'fixed_points',{1,[0,0,0]},'force_function',@(d) 18*(voltage/100)*d(3), ...
+            'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,positions(f),0.5,4.1*5,0.5,1.5)); % 5kT for base 14
+        mc.run(1e5);
+
+        for i = thinning:thinning:numel(mc.coordinates)
+
+            granularity = 1000;
+            % interpolation, z as a function of base
+            zz = linspace(1,mc.n,granularity);
+            z_locs = arrayfun(@(x) interp1((0:size(mc.coordinates{i},1)-1)*mc.l_k+mc.l_b,mc.coordinates{i}(:,3),mc.l_b*x,'spline'), zz);
+            zz_ind_con = find(z_locs<=-7,1,'first');
+            zz_ind_full = find(z_locs<=-8,1,'first');
+            b{f}(end+1) = zz(zz_ind_con); % base in pore constriction
+            n{f}(end+1) = zz(zz_ind_full); % bases within pore
+
+        end
+
+    end
+
+end
