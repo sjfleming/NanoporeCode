@@ -1,5 +1,5 @@
 function consensus_levs = create_consensus_alignment(levels)
-% create_consensus_alignment(lev1,lev2) does a best possible alignment of all
+% create_consensus_alignment(levels) does a best possible alignment of all
 % the levels in levs using pairwise dynamic time warping and then keeping
 % only the levels which show up in both pairs
 % levels is a cell array, each of which is the matrix, in column vectors:
@@ -34,7 +34,7 @@ function consensus_levs = create_consensus_alignment(levels)
 %         consensus = [mode(levs,2), mean(stds,2)];
         
         % eliminate repeats
-        lev_diffs = consensus(2:end,1) - consensus(1:end-1,1);
+        lev_diffs = abs(consensus(2:end,1) - consensus(1:end-1,1));
         std_compare = min(consensus(1:end-1,2), consensus(2:end,2));
         not_really_different = lev_diffs < std_compare; % neighboring levels are same within uncertainty
         not_really_different = [0; not_really_different];
@@ -44,7 +44,8 @@ function consensus_levs = create_consensus_alignment(levels)
             newcon(i+1,:) = [mean(consensus(new_lev_inds(i):new_lev_inds(i+1)-1,1)), mean(consensus(new_lev_inds(i):new_lev_inds(i+1)-1,2))];
         end
         newcon(i+1,:) = [mean(consensus(new_lev_inds(i):end,1)), mean(consensus(new_lev_inds(i):end,2))];
-        consensus = newcon;
+        consensus = cell(1);
+        consensus{1} = newcon;
         
     end
     
@@ -52,12 +53,13 @@ function consensus_levs = create_consensus_alignment(levels)
     % keep doing this until you're down to one sequence of levels
     while numel(levels)>1
         % align random pairs
-        pair = [true(1,2), false(1,numel(levels)-2)];
+        pair = [true(1,2), false(1,numel(levels)-2)]';
         pair = pair(randperm(numel(pair))); % logic for selecting the pair
         pair_levs = levels(pair);
         c = pairwise_align(pair_levs{1},pair_levs{2});
         % and replace those two sets of levels with the consensus
-        levels = [levels(~pair), c];
+        inds = find(pair);
+        levels = [levels(~pair); c];
     end
     
     consensus_levs = levels{1};

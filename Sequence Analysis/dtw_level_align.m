@@ -17,7 +17,7 @@ function [ind1, ind2] = dtw_level_align(lev1, lev2)
             x = sqrt(abs(a(1,1)^2-b(1,1)^2));
         elseif numel(a)==2
             % give equal weight to the level mean and its noise (std)
-            x = sqrt(abs(a(1,1)^2-b(1,1)^2)) + sqrt(abs(a(1,2)^2-b(1,2)^2));
+            x = sqrt(abs(a(1,1)^2-b(1,1)^2) - min(a(1,2),b(1,2))^2) + 0.25 * sqrt(abs(a(1,2)^2-b(1,2)^2));
         end
     end
     

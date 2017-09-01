@@ -288,14 +288,25 @@ classdef analysis < handle
 %                 [model_levels, model_levels_std] = ...
 %                     get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
 %                     abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
-                if strcmp(events{i}.pore,'M2-MspA')
-                    [model_levels, model_levels_std, model_levels_std_mean,~] = ...
-                        get_model_levels_M2(events{i}.sequence, levs(levs>lowcut & levs<hicut));
-                elseif strcmp(events{i}.pore,'M3-MspA')
-                    [model_levels, model_levels_std, model_levels_std_mean] = ...
-                        get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
-                        abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
+                
+                % model levels
+                if isnumeric(seq)
+                    model_levels = seq(:,1);
+                    model_levels_std = seq(:,2);
+                    model_levels_std_mean = seq(:,2);
+                else
+                
+                    if strcmp(events{i}.pore,'M2-MspA')
+                        [model_levels, model_levels_std, model_levels_std_mean,~] = ...
+                            get_model_levels_M2(events{i}.sequence, levs(levs>lowcut & levs<hicut));
+                    elseif strcmp(events{i}.pore,'M3-MspA')
+                        [model_levels, model_levels_std, model_levels_std_mean] = ...
+                            get_model_levels_oxford(events{i}.sequence, levs(levs>lowcut & levs<hicut), ...
+                            abs(events{i}.open_pore_current_mean), abs(events{i}.voltage), events{i}.temperature);
+                    end
+                
                 end
+                
                 % save the initial scaling
                 events{i}.model_levels = cell(numel(model_levels),1);
                 for j = 1:numel(model_levels)
