@@ -257,6 +257,11 @@ classdef ssDNA_MCMC < handle
             obj.coordinates{end+1} = obj.current_coords;
         end
         
+        function thin(obj, thinning)
+            % thin samples
+            obj.coordinates = obj.coordinates(thinning:thinning:end);
+        end
+        
         function reset_all(obj)
             % clear all the samples from this simulation
             obj.coordinates = cell(0);

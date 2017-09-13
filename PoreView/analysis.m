@@ -968,6 +968,8 @@ classdef analysis < handle
             addOptional(p, 'color', 'k', @(x) or(ischar(x),checkPosNum(x))); % color to use in plots
             addOptional(p, 'inverted', false, @(x) islogical(x)); % scatter plots: inverted true plots \Delta I / I_0
             addOptional(p, 'eventblockage', 'mean', @(x) any(cellfun(@(y) strcmp(x,y), {'mean','first','last'}))); % what to plot for blockage data
+            addOptional(p, 'openporeconductance', [], checkPosNum); % open pore conductance
+            addOptional(p, 'normalizecurrent', true, @(x) islogical(x)); % event plot: should current be normalized to open pore or not?
             
             % parse
             parse(p,varargin{:});
@@ -1061,6 +1063,13 @@ classdef analysis < handle
             % input handling
             obj.parseObjectInputs(varargin{:});
             
+            % use user-defined open pore if specified
+            if ~isempty(obj.in.openporeconductance)
+                cond = obj.in.openporeconductance(1);
+                cond_std = obj.in.openporeconductance(2);
+                return;
+            end
+            
             % grab conductance trace
             [voltage_raw, current_raw] = obj.getViewData(obj.in.trange);
             voltagelogic = obj.findSpecifiedVoltageRegions(obj.in.trange, obj.in.voltage);
@@ -1135,12 +1144,16 @@ classdef analysis < handle
             if d(end,1)-d(1,1)<1.5
                 timefactor = 1000;
             end
-            plot((d(:,1)-event.time(1))*timefactor,d(:,2)*obj.in.currentscaling/event.open_pore_current_mean,'k')
+            normalization = event.open_pore_current_mean;
+            if ~obj.in.normalizecurrent
+                normalization = sign(event.open_pore_current_mean);
+            end
+            plot((d(:,1)-event.time(1))*timefactor,d(:,2)*obj.in.currentscaling/normalization,'k')
             
             % if there are levels specified, show them
             if isfield(event,'levels')
                 timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
-                means = cellfun(@(x) x.current_mean, event.levels) / event.open_pore_current_mean;
+                means = cellfun(@(x) x.current_mean, event.levels) / normalization;
                 line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
             end
             
@@ -1166,6 +1179,10 @@ classdef analysis < handle
             end
             ylabel('I / I_0')
             ylim([0 1.1])
+            if ~obj.in.normalizecurrent
+                ylabel('I (pA)')
+                ylim([0 Inf])
+            end
             xlim([-Inf Inf])
             
             analysis.finishPlot(f, event, true, true, true, obj.in.filter);
@@ -1379,7 +1396,7 @@ classdef analysis < handle
                     temp_ind = obj.sigdata.findNext(endcondition, temp_ind); % find point within event
                     next_bit = obj.sigdata.get(round([temp_ind, temp_ind + obj.in.minduration/obj.sigdata.si])); % look at next bit of data
                     % if the median of that next bit of data is really below threshold, accept this point
-                    if median(next_bit(:,chan)./next_bit(:,3)*obj.in.currentscaling/obj.in.voltagescaling) >= g_m*obj.in.threshold || ... % conductance median above threshold
+                    if median(next_bit(:,chan)./next_bit(:,3)*obj.in.currentscaling/obj.in.voltagescaling) >= g_m*obj.in.startendthreshold || ... % conductance median above threshold
                             median(next_bit(:,chan)./next_bit(:,3)*obj.in.currentscaling/obj.in.voltagescaling) < 0 || ... % conductance median below zero
                             any(round(next_bit(:,3)*obj.in.voltagescaling/5)==0) % voltage within 2.5mV of zero
                         found = true;
