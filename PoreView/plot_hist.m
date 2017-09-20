@@ -12,7 +12,7 @@ function [xx,yy] = plot_hist(sigdata, tr, chan)
     % create the x-values
     rough_downsampled_data = sigdata.getViewData(tr);
     rough_downsampled_sig = medfilt1(rough_downsampled_data(:,chan)*(1000-999*double(isCond)),50); % x1000 to get pA, if it's not conductance
-    alpha = 10; % for recording from axopatch
+    alpha = 1/10; % for recording from axopatch
     digitization = 1/alpha * 0.30517578125; % in pA
     if isCond
         maxVoltage = mode(abs(round(medfilt1(rough_downsampled_data(:,3),50)))); % most common voltage

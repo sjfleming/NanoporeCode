@@ -9,19 +9,19 @@ R = 0.6;
 x = linspace(-R,R,100);
 y1 = sqrt(R^2-x.^2);
 y2 = -sqrt(R^2-x.^2);
-plot3([x,x],[y1,y2],ones(1,numel(x)*2)*-7,'k')
+%plot3([x,x],[y1,y2],ones(1,numel(x)*2)*-7,'k')
 plot3([x,x],[y1,y2],ones(1,numel(x)*2)*-7,'k.')
 
 x = linspace(-4*R,4*R,100);
 y1 = sqrt((4*R)^2-x.^2);
 y2 = -sqrt((4*R)^2-x.^2);
-plot3([x,x],[y1,y2],ones(1,numel(x)*2)*0,'k')
+%plot3([x,x],[y1,y2],ones(1,numel(x)*2)*0,'k')
 plot3([x,x],[y1,y2],ones(1,numel(x)*2)*0,'k.')
 
 x = linspace(-2*R,2*R,100);
 y1 = sqrt((2*R)^2-x.^2);
 y2 = -sqrt((2*R)^2-x.^2);
-plot3([x,x],[y1,y2],ones(1,numel(x)*2)*-8,'k')
+%plot3([x,x],[y1,y2],ones(1,numel(x)*2)*-8,'k')
 plot3([x,x],[y1,y2],ones(1,numel(x)*2)*-8,'k.')
 
 %%
@@ -131,7 +131,7 @@ end
 
 %% plot base in pore constriction
 
-%figure()
+figure()
 errorbar(voltages,cellfun(@(x) mean(x), b),cellfun(@(x) std(x)/sqrt(numel(x)), b),'o')
 set(gca,'fontsize',12,'outerposition',[0.01,0.01,0.98,0.98],'looseinset',[0,0,0,0])
 xlim([40 200])
@@ -146,11 +146,11 @@ title('ssDNA MCMC simulation')
 % with interactions
 
 voltage = 160;
-positions = 9:17;
-n = cell(numel(voltages),1);
-b = cell(numel(voltages),1);
+positions = 10:14;%9:17;
+n = cell(numel(positions),1);
+b = cell(numel(positions),1);
 thinning = 2500;
-independent_samples = 100;
+independent_samples = 40;
 
 for f = 1:numel(positions)
     
@@ -161,7 +161,7 @@ for f = 1:numel(positions)
     
         disp(['p = ' num2str(positions(f))])
         mc = ssDNA_MCMC('bases',28,'fixed_points',{1,[0,0,0]},'force_function',@(d) 18*(voltage/100)*d(3), ...
-            'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,positions(f),0.5,4.1*5,0.5,1.5)); % 5kT for base 14
+            'boundary',@np_bnd,'initial_coordinates',init,'interaction_function',@(d) m2_constriction_interaction(d,positions(f),0.5,4.1*3,0.5,1.5)); % 5kT for base 14
         mc.run(1e5);
 
         for i = thinning:thinning:numel(mc.coordinates)

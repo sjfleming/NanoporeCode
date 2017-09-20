@@ -14,8 +14,8 @@ init = [0         0         0
 
 %%
 
-voltages = 60:20:200;
-positions = 18:19;%9:17;
+voltages = 60:20:180;
+positions = 9:19;
 n = cell(numel(positions),numel(positions));
 b = cell(numel(positions),1);
 thinning = 2500;
@@ -36,7 +36,7 @@ for j = 1:numel(voltages)
             mc = ssDNA_MCMC('bases',28,'fixed_points',{1,[0,0,0]}, ...
                 'force_function',@(d) force*(voltages(j)/100)*d(3), ...
                 'boundary',@np_bnd,'initial_coordinates',init, ...
-                'interaction_function',@(d) m2_constriction_interaction(d,positions(f),0.5,4.1*5,0.5,1.5));
+                'interaction_function',@(d) m2_constriction_interaction(d,1:positions(f),0.5,4.1*5,0.5,1.5));
             mc.run(1e5);
             
             % thin
@@ -60,7 +60,8 @@ for j = 1:numel(voltages)
         position = positions(f);
         voltage = voltages(j);
         mc = total;
-        save(savename,'mc','position','voltage','energy','force','init','thinning');
+        pos = 1:positions(f);
+        save(savename,'mc','pos','voltage','energy','force','init','thinning');
         total = [];
         
     end
