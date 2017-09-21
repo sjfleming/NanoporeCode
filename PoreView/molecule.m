@@ -725,8 +725,8 @@ classdef molecule < handle & matlab.mixin.SetGet
                 % probability this is a stay
                 stdev = levs.level_stds(end);
                 div = 0.00005;
-                p_stay = mean([ normpdf(lev(i),lev(i-1)+div,stdev/sqrt(timing(i)/(100*tau))), normpdf(lev(i),lev(i-1)-div,stdev/sqrt(timing(i)/(100*tau))) ]) * 2*div ... % prob of distribution overlap
-                    * 2^(-max(0,abs(stdev-stdv(i))-0.1)/(0.1*min(stdv(i),stdev))); % factor to make stays unlikely for different standard deviations
+                p_stay = mean([ normpdf(lev(i),lev(i-1)+div,stdev), normpdf(lev(i),lev(i-1)-div,stdev) ]) * 2*div ... % prob of distribution overlap
+                    * mean([ normpdf(stdv(i),stdv(i-1)+div,stdev), normpdf(stdv(i),stdv(i-1)-div,stdev) ]) * 2*div; % factor to make stays unlikely for different standard deviations
                 % probability this is noise
                 if i<numel(lev)
                     p_noise = mean([ exppdf(dur(i)+div,tau), exppdf(dur(i)-div,tau) ]) * 2*div ... % short enough
@@ -818,7 +818,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             end
             
             % cumulative distribution function for level durations
-            n = obj.get_robust_levels(-6,-5);
+            n = obj.get_robust_levels('pstay',-6,'pnoise',-5);
             tau = mean(diff(n.level_timing,1,2));
             c_d_f = @(t) 1 - exp(-1*t/tau);
             
@@ -841,7 +841,7 @@ classdef molecule < handle & matlab.mixin.SetGet
             end
             
             % calculate kappa
-            bins = ceil(numel(pulse_timings)/10);
+            bins = 10/(max(0.1,max(p)-min(p))); % ceil(numel(pulse_timings)/10);
             bincenters = 1/bins/2 : 1/bins : 1 - 1/bins/2;
             n = hist(p, bincenters);
             kappa = sqrt( std(n)^2*bins / numel(p)^2 );

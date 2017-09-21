@@ -184,24 +184,25 @@ classdef util
         
         function doFindEventEdges(pv,tr)
             
+            chan = 5;
             sigdata = pv.data;
             raw1 = abs(sigdata.getViewData([max(0,tr(1)-500),tr(1)]));
             raw2 = abs(sigdata.getViewData([tr(2),min(sigdata.tend,tr(2)+500)]));
-            threshold = 0.33;
-            rawInd1 = find(raw1(:,2)>threshold,1,'last');
+            threshold = 0.25;
+            rawInd1 = find(raw1(:,chan)>threshold,1,'last');
             if isempty(rawInd1)
                 trange(1) = 0;
             else
-                trange(1) = sigdata.findPrev(@(x) abs(x(:,2))>threshold, (raw1(rawInd1,1)+0.05)/sigdata.si) * sigdata.si;
+                trange(1) = sigdata.findPrev(@(x) abs(x(:,chan))>threshold, (raw1(rawInd1,1)+0.05)/sigdata.si) * sigdata.si;
                 if trange(1)<0
                     trange(1) = raw1(rawInd1,1); % default to the raw guess if we get something wrong
                 end
             end
-            rawInd2 = find(raw2(:,2)>threshold,1,'first');
+            rawInd2 = find(raw2(:,chan)>threshold,1,'first');
             if isempty(rawInd2)
                 trange(2) = sigdata.tend;
             else
-                trange(2) = sigdata.findNext(@(x) abs(x(:,2))>threshold, (raw2(rawInd2,1)-0.05)/sigdata.si) * sigdata.si;
+                trange(2) = sigdata.findNext(@(x) abs(x(:,chan))>threshold, (raw2(rawInd2,1)-0.05)/sigdata.si) * sigdata.si;
             end
             pv.setCursors(trange);
             display(['Time = ' num2str(trange(2)-trange(1),5)])

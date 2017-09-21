@@ -179,6 +179,9 @@ function pv = pv_launch(s)
             sig = sigs{pv.psigs(1).sigs(end)}; % get the name of the top signal in panel 1
             nums = regexp(sig, '\d+', 'match');
             filter = str2double(nums{1}); % get the filter frequency from the signal name
+            if filter==0
+                filter = 10000;
+            end
             display(['Detected a filter of ' num2str(filter) 'Hz'])
             current = util.downsample_pointwise(pv.data, pv.psigs(1).sigs(end), tr, min(filter*5*diff(tr),10e6));
             t = linspace(tr(1),tr(2),numel(current));
@@ -310,6 +313,18 @@ function pv = pv_launch(s)
             % currently inside
             tr = pv.getCursors();
             util.doFindEventEdges(pv,tr);
+            
+        elseif strcmp(e.Character,'v')
+            tr = pv.getCursors();
+            filter = 100;
+            current = util.downsample_pointwise(pv.data, pv.psigs(1).sigs(end), tr, min(filter*5*diff(tr),10e6));
+            t = linspace(tr(1),tr(2),numel(current));
+            data = [t', current'];
+            clear t current
+            levels = karplus_levels(data, 1/(1600/1000), 1e-10, filter);
+            clear data
+            [k, pulses] = pulse_correlation(pv.data,tr,4,levels);
+            disp(['kappa = ' num2str(k)])
             
         end
         
