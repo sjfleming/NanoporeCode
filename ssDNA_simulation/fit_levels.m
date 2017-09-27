@@ -1,36 +1,81 @@
-function p = fit_levels(file, num, howtofit, pstart)
+function p = fit_levels(file, num, modelfun, howtofit, pstart)
 % fit_levels fits the Oxford levels to a physical model
 % Stephen Fleming
 % 2017/09/26
     
     %%    
 
-    if nargin<4
+    if nargin<5
 
-        pstart = [0.3130
-        0.7635
-       -2.4443
-       -0.9542
-        2.3219
-       -0.1784
-       -0.1928
-       -2.4485
-        0.0832
-        2.7365
-       -0.1458
-        0.2808
-       -1.5316
-       -0.7043
-        2.1009
-        0.3481
-        1.1094
-       -3.1951
-       -0.6563
-        2.3939
-        3.1218
-        0.5943
-       55.3071
-       70.1762]; % stretch: pA / base
+        pstart = [0.2903
+    2.0817
+   -0.8429
+   -1.8129
+    0.2838
+    0.5899
+   -0.3842
+   -1.3440
+    0.5764
+    0.5618
+   -0.6821
+    2.0710
+    0.4854
+   -1.2590
+   -0.6153
+   -0.5165
+    1.0094
+    0.8198
+   -0.1324
+   -1.1803
+    0.5282
+    0.4552
+    0.3721
+    0.4383
+    0.4803
+    0.5056
+    0.4617
+    0.4277
+    0.5276
+    0.5890
+    0.4979
+    0.3561
+    0.4132
+    0.5072
+    0.5386
+    0.5744
+    0.7419
+    0.8088
+    0.6525
+    0.5333
+    0.9575
+   -0.0001
+    0.2156
+    0.6812];
+
+% pstart = [0.2212
+%     2.2573
+%    -0.8391
+%    -1.8038
+%     0.1644
+%    -1.0487
+%    -0.4786
+%    -0.9775
+%     1.2076
+%     1.2972
+%    -0.8435
+%     1.4279
+%     0.9974
+%    -1.1481
+%    -0.4337
+%    -2.2861
+%     0.8477
+%     2.2861
+%    -0.1528
+%    -0.6948
+%     2.4998
+%     1.4206
+%    18.2357
+%    25.3598];
 
     end
 
@@ -47,7 +92,7 @@ function p = fit_levels(file, num, howtofit, pstart)
     if strcmp(howtofit,'matlab')
 
         op = optimset('maxfunevals', 31*100, 'maxiter', 31*100, 'display', 'iter');
-        p = fminsearch(@(p) sum((x' - current_model_physical_2(list,p,0)).^2), pstart, op);
+        p = fminsearch(@(p) sum((x' - modelfun(list,p,0)).^2), pstart, op);
 
         p = normalizep(p);
     
@@ -68,7 +113,7 @@ function p = fit_levels(file, num, howtofit, pstart)
             for i = 1:numel(listing)
                 kmer = list{listing(i)};
                 % difference from target
-                delQ = (current_model_physical_2({kmer},p,0) - x(listing(i)));
+                delQ = (modelfun({kmer},p,0) - x(listing(i)));
                 if delQ<=1
                     continue;
                 end
@@ -117,7 +162,7 @@ function p = fit_levels(file, num, howtofit, pstart)
             plot(p','o')
             drawnow;
 %             disp(num2str(numel(p)))
-            cost = sum((x' - current_model_physical_2(list,p,0)).^2);
+            cost = sum((x' - modelfun(list,p,0)).^2);
             disp(num2str(cost))
         end
         
@@ -129,19 +174,22 @@ function p = fit_levels(file, num, howtofit, pstart)
     
     figure(2)
     clf
+    line([0 25],[0 0],'color','k')
     
     if strcmp(howtofit,'sa')
         
         p = pstart;
         Tstart = 10;
+        Tend = 0.001;
+        factor = 100;
         iterations = 1000;
         
-        currentcost = sum((current_model_physical_2(list,p,0) - x').^2);
+        currentcost = sum((modelfun(list,p,0) - x').^2);
+        
+        % annealing schedule
+        T = logspace(log10(Tstart),log10(Tend),iterations);
         
         for k = 1:iterations
-            
-            % annealing schedule
-            T = linspace(Tstart,1,iterations);
             
             inds = randsample(numel(p),numel(p));
             acc = 0;
@@ -149,10 +197,19 @@ function p = fit_levels(file, num, howtofit, pstart)
                 
                 % proposal
                 pr = p;
-                pr(inds(i)) = pr(inds(i)) + randn(1)*pr(inds(i))/10;
+                thisind = inds(i);
+                pairind = [];
+                if thisind <=20 && rand()<0.5 % only pair half the time
+                    % a random index from same group of five but not itself
+                    pairind = (floor((thisind-1)/5))*5 + randsample(find(1:5~=(rem(thisind-1,5)+1)),1);
+                end
+                % pr(inds(i)) = pr(inds(i)) + randn(1)*pr(inds(i))/factor;
+                movement = randn(1)/factor;%min(0.01,randn(1)*pr(thisind)/factor);
+                pr(thisind) = pr(thisind) + movement;
+                pr(pairind) = pr(pairind) - movement;
                 
                 % cost
-                cost = sum((current_model_physical_2(list,pr,0) - x').^2);
+                cost = sum((modelfun(list,pr,0) - x').^2);
                 
                 % prob
                 prob = exp(-(cost-currentcost)/T(k));
@@ -186,8 +243,8 @@ function p = fit_levels(file, num, howtofit, pstart)
     clf
     plot(x,x,'ok')
     hold on
-    plot(x,current_model_physical_2(list,pstart,0),'o')
-    plot(x,current_model_physical_2(list,p,0),'o')
+    plot(x,modelfun(list,pstart,0),'o')
+    plot(x,modelfun(list,p,0),'o')
     dcm_obj = datacursormode(f);
     set(dcm_obj,'UpdateFcn',@(~,obj) list{obj.DataIndex})
     
