@@ -1,5 +1,7 @@
 %%
 
+function script_plot_model_sequence(p)
+
 % check how the model does on a sequence
 
 % have a 'p' from a fit to current_model_physical_2
@@ -20,7 +22,7 @@ figure(3)
 plot(1:(numel(seq)-4),d.model_data{1}.level_mean(inds),'sk-')
 hold on
 plot(1:(numel(seq)-4),current_model_fun(arrayfun(@(x) d.model_data{1}.kmer(:,x), inds, 'uniformoutput', false), fp),'o--')
-plot(1:(numel(seq)-4),current_model_physical_2(arrayfun(@(x) d.model_data{1}.kmer(:,x)', inds, 'uniformoutput', false), p, 0),'o--')
+plot(1:(numel(seq)-4),current_model_physical_3(arrayfun(@(x) d.model_data{1}.kmer(:,x)', inds, 'uniformoutput', false), p, 0),'o--')
 
 set(gca,'xtick',1:(numel(seq)-4),'xticklabelrotation',90,'xticklabel',arrayfun(@(x) seq(x:x+4), 1:(numel(seq)-4), 'uniformoutput',false))
 
@@ -28,4 +30,6 @@ figure(5)
 plot(x,x,'ok')
 hold on
 plot(x,current_model_fun(arrayfun(@(x) d.model_data{num}.kmer(:,x), 1:size(d.model_data{num}.kmer,2), 'uniformoutput', false),fp),'o')
-plot(x,current_model_physical_2(list,p,0),'o')
+plot(x,current_model_physical_3(list,p,0),'o')
+
+end
