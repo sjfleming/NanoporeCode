@@ -55,32 +55,70 @@ function p = fit_levels(file, num, howtofit, pstart)
     
     %%
     
+    figure(2)
+    clf
+    
     if strcmp(howtofit,'sgd')
         
-        rate = 0.01;
+        p = pstart;
+        rate = 0.0001;
         iterations = 1000;
         for k = 1:iterations
             listing = randsample(numel(list),numel(list));
             for i = 1:numel(listing)
-                kmer = list(listing(i));
+                kmer = list{listing(i)};
                 % difference from target
-                delQ = (current_model_fun_sophisticated(kmer,p,0) - x(listing(i)));
+                delQ = (current_model_physical_2({kmer},p,0) - x(listing(i)));
+                if delQ<=1
+                    continue;
+                end
                 % update parameters
-                pFa = p(1:5)' - mean(p(1:5));
-                pFc = p(6:10)' - mean(p(6:10));
-                pFg = p(11:15)' - mean(p(11:15));
-                pFt = p(16:20)' - mean(p(16:20));
-                seq = nt2int(list{i});
+                pF(1,:) = p(1:5)' - mean(p(1:5));
+                pF(2,:) = p(6:10)' - mean(p(6:10));
+                pF(3,:) = p(11:15)' - mean(p(11:15));
+                pF(4,:) = p(16:20)' - mean(p(16:20));
+                seq = nt2int(kmer);
                 Alogic = seq==1;
                 Clogic = seq==2;
                 Glogic = seq==3;
                 Tlogic = seq==4;
-                F_sum = sum(Alogic.*pFa + Clogic.*pFc + Glogic.*pFg + Tlogic.*pFt);
+                F_sum = sum(Alogic.*pF(1,:) + Clogic.*pF(2,:) + Glogic.*pF(3,:) + Tlogic.*pF(4,:));
                 % HERE
+                % pick one of the bases involved
+                if numel(find([sum(Alogic)>0,sum(Clogic)>0,sum(Glogic)>0,sum(Tlogic)>0]))==1
+                    base = find([sum(Alogic)>0,sum(Clogic)>0,sum(Glogic)>0,sum(Tlogic)>0]);
+                else
+                    base = randsample(find([sum(Alogic)>0,sum(Clogic)>0,sum(Glogic)>0,sum(Tlogic)>0]),1);
+                end
+                F_sum_base = sum((seq==base).*pF(base,:)); % sum of forces due to that random base
+                % tweak either the forces or the current factor
+                % when delQ<0, we want the current to go up
+                % by stretching
+                if sum(seq==base)==1
+                    ind = (base-1)*5+find(seq==base);
+                else
+                    ind = (base-1)*5+randsample(find(seq==base),1);
+                end
+                if F_sum_base>0
+                    p(ind) = p(ind) + delQ*39.7/2/p(end) * rate;
+                else
+                    p(ind) = p(ind) + delQ*39.7/2/p(end-1) * rate;
+                end
+                p((base-1)*5+1:base*5) = p((base-1)*5+1:base*5) - mean(p((base-1)*5+1:base*5)); % norm
+                % do something about factors....
+                if isnan(sum(p))
+                    disp('')
+                end
+                %p = normalizep(p);
             end
+            
             figure(2)
+            hold on
             plot(p','o')
             drawnow;
+%             disp(num2str(numel(p)))
+            cost = sum((x' - current_model_physical_2(list,p,0)).^2);
+            disp(num2str(cost))
         end
         
         p = normalizep(p);
