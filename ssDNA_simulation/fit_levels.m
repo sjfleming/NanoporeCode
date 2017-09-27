@@ -124,6 +124,61 @@ function p = fit_levels(file, num, howtofit, pstart)
         p = normalizep(p);
     
     end
+    
+    %%
+    
+    figure(2)
+    clf
+    
+    if strcmp(howtofit,'sa')
+        
+        p = pstart;
+        Tstart = 10;
+        iterations = 1000;
+        
+        currentcost = sum((current_model_physical_2(list,p,0) - x').^2);
+        
+        for k = 1:iterations
+            
+            % annealing schedule
+            T = linspace(Tstart,1,iterations);
+            
+            inds = randsample(numel(p),numel(p));
+            acc = 0;
+            for i = 1:numel(inds)
+                
+                % proposal
+                pr = p;
+                pr(inds(i)) = pr(inds(i)) + randn(1)*pr(inds(i))/10;
+                
+                % cost
+                cost = sum((current_model_physical_2(list,pr,0) - x').^2);
+                
+                % prob
+                prob = exp(-(cost-currentcost)/T(k));
+                if rand() < prob
+                    % accept proposal and step
+                    p = pr;
+                    currentcost = cost;
+                    acc = acc+1;
+                end
+                
+                if isnan(sum(p))
+                    disp('')
+                end
+                p = normalizep(p);
+            end
+            
+            figure(2)
+            hold on
+            plot(p','o')
+            drawnow;
+            disp(['T = ' num2str(T(k)) ', cost = ' num2str(cost) ', acceptance: ' num2str(round(acc/numel(p)*100)) '%'])
+        end
+        
+        p = normalizep(p);
+    
+    end
 
     %%
 
