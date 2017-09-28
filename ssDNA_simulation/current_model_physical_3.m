@@ -31,16 +31,16 @@ function y = current_model_physical_3(list, p, debug)
     
     % params for stretching and compression's effect on current
     %current_stretch_resistance_change_vs_dx = p(end-1);
-    min_vestibule_resistance = abs(p(end-2));
-    dRdx = abs(p(end-1));
-    range_vestibule_resistance = abs(p(end));
+%     min_vestibule_resistance = abs(p(end-2));
+%     dRdx = abs(p(end-1));
+%     range_vestibule_resistance = abs(p(end));
     
     % interpolate the resistances based on movement of the strand
     xq = 0:0.01:6;
-    pRa_int = interp1(-4:1:10,[zeros(1,5) pRa zeros(1,5)],xq,'linear');
-    pRc_int = interp1(-4:1:10,[zeros(1,5) pRc zeros(1,5)],xq,'linear');
-    pRg_int = interp1(-4:1:10,[zeros(1,5) pRg zeros(1,5)],xq,'linear');
-    pRt_int = interp1(-4:1:10,[zeros(1,5) pRt zeros(1,5)],xq,'linear');
+    pRa_int = interp1(-4:1:10,[zeros(1,5) pRa zeros(1,5)],xq,'pchip');
+    pRc_int = interp1(-4:1:10,[zeros(1,5) pRc zeros(1,5)],xq,'pchip');
+    pRg_int = interp1(-4:1:10,[zeros(1,5) pRg zeros(1,5)],xq,'pchip');
+    pRt_int = interp1(-4:1:10,[zeros(1,5) pRt zeros(1,5)],xq,'pchip');
 
     % initialize output
     y = zeros(size(list));
@@ -54,14 +54,15 @@ function y = current_model_physical_3(list, p, debug)
         Glogic = seq==3;
         Tlogic = seq==4;
         
-        %Utotal = 1/2 * 39.7 * (xx*0.5).^2 / kT; % initialize to Ustretch
-        k = 39.7;
+        k = 20.48; % effective spring constant from MCMC in pN/nm
         F_sum = sum(Alogic.*pFa + Clogic.*pFc + Glogic.*pFg + Tlogic.*pFt);
         
         % now we have the full quasi-potential, Utotal
-        dx = 2*F_sum/k;
+        dx = F_sum/k; % in nm
         R = 0;
-        R = R + min_vestibule_resistance + range_vestibule_resistance./(1+exp(-dx/dRdx));
+        %R = R + min_vestibule_resistance + range_vestibule_resistance./(1+exp(-dx/dRdx));
+        f = F_sum+140*0.18; % grand total at 140mV
+        R = R + 5.921*exp(-f/22.35) - 1.906; % change from baseline 140mV resistance (1.906G) based on fitting blocked pore resistance versus force
 %         if dx<0
 %             %R = R + current_stretch_resistance_change_vs_dx * dx;
 %             R = R + current_compress_resistance_change_vs_dx * dx;
@@ -70,13 +71,14 @@ function y = current_model_physical_3(list, p, debug)
 %         end
         
         % add resistance of each base
-        index_for_xq = round(dx/0.01) + (1:5)/0.01 + 1;
+        index_for_xq = -1*round((dx/0.5)/0.01) + (1:5)/0.01 + 1; % if dx>0, compression, so sample points x-dx
+        index_for_xq = min(max(1,index_for_xq),numel(xq)); % make sure inds are in range (if they're out, they become zero resistance)
         R = R + sum(Alogic.*pRa_int(index_for_xq) + Clogic.*pRc_int(index_for_xq) + ...
             Glogic.*pRg_int(index_for_xq) + Tlogic.*pRt_int(index_for_xq));
         
         % calculate current y
         y(i) = 140 / R; % in pA, when R is in Gohm, and current is at 140mV
-        
+        stretch(i) = dx;
     end
     
     if debug

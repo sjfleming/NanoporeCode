@@ -182,9 +182,9 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
     if strcmp(howtofit,'sa')
         
         p = pstart;
-        Tstart = 10;
-        Tend = 0.01;
-        factor = 20;
+        Tstart = 1000;
+        Tend = 0.1;
+        factor = 10;
         iterations = 100;
         
         currentcost = sum((modelfun(list,p,0) - x').^2);
@@ -207,7 +207,7 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
                     pairind = (floor((thisind-1)/5))*5 + randsample(find(1:5~=(rem(thisind-1,5)+1)),1);
                 end
                 % pr(inds(i)) = pr(inds(i)) + randn(1)*pr(inds(i))/factor;
-                movement = randn(1)/factor;%min(0.01,randn(1)*pr(thisind)/factor);
+                movement = randn(1)/factor;%*max(0.1,pr(thisind));
                 pr(thisind) = pr(thisind) + movement;
                 pr(pairind) = pr(pairind) - movement;
                 
@@ -233,7 +233,7 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
             hold on
             plot(p','o')
             drawnow;
-            disp(['T = ' num2str(T(k)) ', cost = ' num2str(cost) ', acceptance: ' num2str(round(acc/numel(p)*100)) '%'])
+            disp(['T = ' num2str(T(k)) ', cost = ' num2str(currentcost) ', acceptance: ' num2str(round(acc/numel(p)*100)) '%'])
         end
         
         p = normalizep(p);
@@ -250,14 +250,32 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
     plot(x,modelfun(list,p,0),'o')
     dcm_obj = datacursormode(f);
     set(dcm_obj,'UpdateFcn',@(~,obj) list{obj.DataIndex})
+    drawnow;
     
     %%
     function p = normalizep(p)
-        p(1:5) = p(1:5) - mean(p(1:5));
-        p(6:10) = p(6:10) - mean(p(6:10));
-        p(11:15) = p(11:15) - mean(p(11:15));
-        p(16:20) = p(16:20) - mean(p(16:20));
+%         p(1:5) = p(1:5) - mean(p(1:5));
+%         p(6:10) = p(6:10) - mean(p(6:10));
+%         p(11:15) = p(11:15) - mean(p(11:15));
+%         p(16:20) = p(16:20) - mean(p(16:20));
         p(21:end) = abs(p(21:end));
+        % enforce homopolymer levels
+        
+%         % modify the total force
+%         for ine = 1:4
+%             indices = (1:5)+(ine-1)*5;
+%             if abs(sum(p(indices))/20.48)/0.5 > 1 % dx in bases
+%                 p(indices) = p(indices) / (abs(sum(p(indices))/20.48)/0.5);
+%             end
+%         end
+        
+%         % change the resistances
+%         p(21:end) = abs(p(21:end));
+%         p(21:25) = p(21:25) + (140/52.5778 - (sum(p(21:25)) + 5.921*exp(-((sum(p(1:5))/20.48)+140*0.18)/22.35) - 1.906))/5; % A 52.5778
+%         p(26:30) = p(26:30) + (140/52.4166 - (sum(p(26:30)) + 5.921*exp(-((sum(p(6:10))/20.48)+140*0.18)/22.35) - 1.906))/5; % C 52.4166
+%         p(31:35) = p(31:35) + (140/54.7827 - (sum(p(31:35)) + 5.921*exp(-((sum(p(11:15))/20.48)+140*0.18)/22.35) - 1.906))/5; % G 54.7827
+%         p(36:40) = p(36:40) + (140/36.0750 - (sum(p(36:40)) + 5.921*exp(-((sum(p(16:20))/20.48)+140*0.18)/22.35) - 1.906))/5; % T 36.0750
+%         p(21:end) = abs(p(21:end));
     end
     
 end
