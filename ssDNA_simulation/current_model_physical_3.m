@@ -59,6 +59,7 @@ function y = current_model_physical_3(list, p, debug)
         
         % now we have the full quasi-potential, Utotal
         dx = F_sum/k; % in nm
+        %dx = 0; % TESTING
         R = 0;
         %R = R + min_vestibule_resistance + range_vestibule_resistance./(1+exp(-dx/dRdx));
         f = F_sum+140*0.18; % grand total at 140mV

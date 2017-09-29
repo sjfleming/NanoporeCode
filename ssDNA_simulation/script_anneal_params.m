@@ -12,7 +12,7 @@ p = [2; 1; 0; -1; -2;
 for i = 1:1000
     % simulated anneal, then hone in to a local minimum, then repeat bump
     % out and repeat
-    p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'sa',p+randn(size(p))*0.1);
+    p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'sa',p);%+randn(size(p))*0.05);
     p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'matlab',p);
 end
 
@@ -109,11 +109,11 @@ logic = cellfun(@(x) ~isempty(regexp(x,'[ACGT][ACGT][ACGT][ACGT][T]')), kmers);
 pt(5) = mean(currents(logic)) - mean(currents(logicn));
 pts(5) = std(currents(logic));
 
-p = [-pa';
-    -pc';
-    -pg';
-    zeros(5,1);
+p = [-pa'-mean(-pa);
+    -pc'-mean(-pc);
+    -pg'-mean(-pg);
+    -pt'-mean(-pt);
     0.5*ones(5,1);
     0.5*ones(5,1);
     0.5*ones(5,1);
-    ((-pt'+sign(min(-pt))*min(-pt))/10 + 0.5)];
+    0.9*ones(5,1)];
