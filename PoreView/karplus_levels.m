@@ -16,6 +16,7 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
         options = optimset('TolX',1);
         [possible_transition_index, min_prob] = fminbnd(@(x) log_posterior_odds(x,ind1,ind2), ind1+minpts, ind2-minpts, options);
         
+        tracker(end+1) = min_prob;
         if min_prob < p
             % this index is a real transition, save it and recursively look
             % at the two new levels
@@ -63,10 +64,13 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
     fs = 1/sampling;
     k = filter/(fs/2); % ratio of filter frequency to Nyquist frequency (if filter is Nyquist frequency, then k=1)
     log_prior = log(expected_levels_per_second) - log(fs - expected_levels_per_second);
-    p = -log_prior + 1/k * log(false_positives_per_second/fs);
-    minpts = 1/k * (1/filter)/sampling; % number of data points in the shortest resolvable level with this filter setting
+    %p = -log_prior + 1/k * log(false_positives_per_second/fs);
+    p = -1/k * (log(fs) - log(false_positives_per_second)); % Schreiber and Karplus 2015
+    %minpts = 1/k * (1/filter)/sampling; % number of data points in the shortest resolvable level with this filter setting
+    minpts = (1/filter)/sampling;
     
     % run the level search (recursive)
+    tracker = [];
     a = 1;
     level_transition_indices = [];
     level_search(1,size(data,1));
