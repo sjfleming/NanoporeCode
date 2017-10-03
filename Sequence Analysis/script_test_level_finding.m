@@ -3,7 +3,7 @@
 clear all
 iterations = 100;
 mean_length = 100e-3;
-filt = 500;
+filt = 2000;
 do_filter = true;
 FPS = 1e-5;
 levels = 100;
@@ -28,8 +28,28 @@ for i = 1:iterations
         current = d(:,2);
     end
     
-    lev = karplus_levels([time,current], 1/mean_length, FPS, filt);
+    lev = karplus_levels([time,current], 1/mean_length/10000, FPS, filt);
     num_levs(i) = numel(lev);
     disp(i)
     
 end
+
+%%
+
+figure(1)
+stairs(1:200,hist(num_levs,1:200))
+hold on
+
+%%
+
+figure(2)
+clf
+for i = 1:numel(lev)
+    inds = [find(time>=lev{i}.start_time,1,'first'), find(time>=lev{i}.end_time,1,'first')];
+    plot(time(inds(1):inds(2)),current(inds(1):inds(2)))
+    hold on
+end
+% plot(time,current)
+% hold on
+% line(cell2mat(cellfun(@(x) [x.start_time, x.end_time], lev, 'uniformoutput', false))',(cellfun(@(x) x.current_mean, lev)*ones(1,2))','linewidth',2,'color','r')
+

@@ -184,11 +184,11 @@ classdef util
         
         function doFindEventEdges(pv,tr)
             
-            chan = 5;
+            chan = 4;
             sigdata = pv.data;
             raw1 = abs(sigdata.getViewData([max(0,tr(1)-500),tr(1)]));
             raw2 = abs(sigdata.getViewData([tr(2),min(sigdata.tend,tr(2)+500)]));
-            threshold = 0.25;
+            threshold = 0.4;
             rawInd1 = find(raw1(:,chan)>threshold,1,'last');
             if isempty(rawInd1)
                 trange(1) = 0;

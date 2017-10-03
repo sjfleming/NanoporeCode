@@ -16,7 +16,7 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
         options = optimset('TolX',1);
         [possible_transition_index, min_prob] = fminbnd(@(x) log_posterior_odds(x,ind1,ind2), ind1+minpts, ind2-minpts, options);
         
-        tracker(end+1) = min_prob;
+        tracker(end+1,:) = [min_prob, possible_transition_index];
         if min_prob < p
             % this index is a real transition, save it and recursively look
             % at the two new levels
@@ -39,8 +39,8 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
         
         probability = (index-i1) * 0.5*log(fastvariance(i1,index)) + ...
             (i3-index) * 0.5*log(fastvariance(index,i3)) - ...
-            (i3-i1) * 0.5*log(fastvariance(i1,i3)) - ...
-            log_prior;
+            (i3-i1) * 0.5*log(fastvariance(i1,i3)); % - ...
+            %log_prior;
 
     end
     
@@ -49,8 +49,8 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
         ind2 = min(size(data,1), round(ind2));
         ind1 = max(1, round(ind1));
         num = n(ind2)-n(ind1);
-        mean = (y1(ind2) - y1(ind1))/num;
-        variance = (y2(ind2) - y2(ind1))/num - mean^2;
+        mu = (y1(ind2) - y1(ind1))/num;
+        variance = (y2(ind2) - y2(ind1))/num - mu^2;
     end
     
     % precompute for fast variance calculation (make it work with nans too)
@@ -63,9 +63,10 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
     sampling = data(2,1)-data(1,1); % sampling interval (s)
     fs = 1/sampling;
     k = filter/(fs/2); % ratio of filter frequency to Nyquist frequency (if filter is Nyquist frequency, then k=1)
-    log_prior = log(expected_levels_per_second) - log(fs - expected_levels_per_second);
+    %log_prior = log(expected_levels_per_second) - log(fs - expected_levels_per_second);
     %p = -log_prior + 1/k * log(false_positives_per_second/fs);
-    p = -1/k * (log(fs) - log(false_positives_per_second)); % Schreiber and Karplus 2015
+    %p = -1/k * (log(fs) - log(false_positives_per_second)); % Schreiber and Karplus 2015, 11
+    p = -1/k * (log(fs - expected_levels_per_second) - log(expected_levels_per_second)); % Schreiber and Karplus 2015, 10
     %minpts = 1/k * (1/filter)/sampling; % number of data points in the shortest resolvable level with this filter setting
     minpts = (1/filter)/sampling;
     
@@ -74,7 +75,13 @@ function levels = karplus_levels(data, expected_levels_per_second, false_positiv
     a = 1;
     level_transition_indices = [];
     level_search(1,size(data,1));
-
+    
+    % SJF 2017/10/03 trying to make this more reliable
+    [yy,xx] = hist(tracker(:,1),-logspace(10,-3,100));
+    g = fit(-log10(-xx'),yy','gauss1','startpoint',[size(tracker,1)/10,nanmean(-log10(-tracker(:,1))),nanstd(-log10(-tracker(:,1)))]);
+    cutoff = -1 * 10^-norminv(0.01,g.b1,g.c1); % look at where the CDF of a normal exceeds 1%
+    level_transition_indices = tracker(tracker(:,1)<cutoff,2)';
+    
     % go through each level and summarize its data, keeping it in a struct
     levels = cell(numel(level_transition_indices)+1,1);
     level_transition_indices = [1, round(sort(level_transition_indices)), size(data,1)];
