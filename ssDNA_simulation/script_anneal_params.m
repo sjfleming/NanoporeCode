@@ -9,11 +9,38 @@ p = [2; 1; 0; -1; -2;
 
 %%
 
+p = [2; 1; 0; -1; -2;
+    0; 0; 0; 0; 0;
+    -4; 3; 2; 0.5; -1.5;
+    0; 0; 0; 0; 0;
+    0.4751
+    0.6140
+    0.7769
+    0.5605
+    0.5005
+    0.4603
+    0.5157
+    0.6233
+    0.5532
+    0.5510
+    0.4941
+    0.6696
+    0.8438
+    0.5846
+    0.5150
+    0.4766
+    0.5564
+    0.6709
+    0.6543
+    0.5627];
+
+%%
+
 for i = 1:1000
     % simulated anneal, then hone in to a local minimum, then repeat bump
     % out and repeat
     p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'sa',p);%+randn(size(p))*0.05);
-    p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'matlab',p);
+    %p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'matlab',p);
 end
 
 

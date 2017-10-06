@@ -184,7 +184,7 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
         p = pstart;
         Tstart = 1000;
         Tend = 0.1;
-        factor = 50;
+        factor = 10;
         iterations = 100;
         
         currentcost = sum((modelfun(list,p,0) - x').^2);
@@ -202,12 +202,14 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
                 pr = p;
                 thisind = inds(i);
                 pairind = [];
-                if thisind <=20 && rand()<0.5 % only pair half the time
-                    % a random index from same group of five but not itself
-                    pairind = (floor((thisind-1)/5))*5 + randsample(find(1:5~=(rem(thisind-1,5)+1)),1);
+                if thisind <=20  % only pair half the time
+                    if rand()<0.5
+                        % a random index from same group of five but not itself
+                        pairind = (floor((thisind-1)/5))*5 + randsample(find(1:5~=(rem(thisind-1,5)+1)),1);
+                    end
 %                     continue; % don't mess with forces
                 else
-%                     continue;
+                    continue;
                 end
                 % pr(inds(i)) = pr(inds(i)) + randn(1)*pr(inds(i))/factor;
                 movement = randn(1)/factor;%*max(0.1,pr(thisind));
