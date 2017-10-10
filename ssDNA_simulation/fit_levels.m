@@ -184,16 +184,18 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
         p = pstart;
         Tstart = 1000;
         Tend = 0.1;
-        factor = 10;
+        factor = 20;
         iterations = 100;
         
-        currentcost = sum((modelfun(list,p,0) - x').^2);
+        difs = modelfun(list,p,0) - x';
+        currentcost = sum(difs.^2);
         
         % annealing schedule
         T = logspace(log10(Tstart),log10(Tend),iterations);
         
         for k = 1:iterations
             
+            [~,topinds] = sort(difs,2,'descend');
             inds = randsample(numel(p),numel(p));
             acc = 0;
             for i = 1:numel(inds)
@@ -213,11 +215,14 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
 %                 end
                 % pr(inds(i)) = pr(inds(i)) + randn(1)*pr(inds(i))/factor;
                 movement = randn(1)/factor;%*max(0.1,pr(thisind));
+%                 if thisind>40
+%                     movement = movement/10;
+%                 end
                 pr(thisind) = pr(thisind) + movement;
                 pr(pairind) = pr(pairind) - movement;
                 
                 % cost
-                cost = sum((modelfun(list,pr,0) - x').^2);
+                cost = sum((modelfun(list(topinds),pr,0) - x(topinds)').^2);
                 
                 % prob
                 prob = exp(-(cost-currentcost)/T(k));
@@ -265,6 +270,7 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
 %         p(16:20) = p(16:20) - mean(p(16:20));
         %p(21:end) = abs(p(21:end));
         p(1:20) = abs(p(1:20));
+        p(41:end) = min(0.5,max(-0.5,p(41:end)));
         % enforce homopolymer levels
         
 %         % modify the total force

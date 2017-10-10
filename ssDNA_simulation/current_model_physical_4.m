@@ -56,7 +56,7 @@ function y = current_model_physical_4(list, p, debug)
         g = Alogic.*g_a' + Clogic.*g_c' + Glogic.*g_c' + Tlogic.*g_t';
         m = Alogic.*m_a' + Clogic.*m_c' + Glogic.*m_c' + Tlogic.*m_t';
         for j = 1:numel(seq)
-            U_total = U_total + g(j) * normpdf(m(j),0.5,xx);
+            U_total = U_total + g(j) * (normpdf(xx,m(j),0.5) - normpdf(0,0,0.5));
         end
             
         % find energy minimum and assume force is adequate to move it there
