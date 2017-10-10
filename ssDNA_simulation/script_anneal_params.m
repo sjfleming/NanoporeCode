@@ -40,7 +40,7 @@ for i = 1:1000
     % simulated anneal, then hone in to a local minimum, then repeat bump
     % out and repeat
     p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'sa',p);%+randn(size(p))*0.05);
-    %p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'matlab',p);
+    p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_3(x,p,i),'matlab',p);
 end
 
 
@@ -144,3 +144,40 @@ p = [-pa'-mean(-pa);
     0.5*ones(5,1);
     0.5*ones(5,1);
     0.9*ones(5,1)];
+
+%%
+
+p = [0.4751
+    0.6140
+    0.7769
+    0.5605
+    0.5005
+    0.4603
+    0.5157
+    0.6233
+    0.5532
+    0.5510
+    0.4941
+    0.6696
+    0.8438
+    0.5846
+    0.5150
+    0.4766
+    0.5564
+    0.6709
+    0.6543
+    0.5627
+    -0.1*ones(5,1)+randn(5,1)*0.05
+    randn(5,1)*0.1
+    randn(5,1)*0.1
+    0.1*ones(5,1)+randn(5,1)*0.1
+    randn(20,1)*0.1];
+
+%%
+
+for i = 1:1000
+    % simulated anneal, then hone in to a local minimum, then repeat bump
+    % out and repeat
+    p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_4(x,p,i),'sa',p);%+randn(size(p))*0.05);
+    p = fit_levels('models.mat',1,@(x,p,i) current_model_physical_4(x,p,i),'matlab',p);
+end

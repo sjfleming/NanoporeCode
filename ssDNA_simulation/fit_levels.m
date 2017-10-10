@@ -202,15 +202,15 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
                 pr = p;
                 thisind = inds(i);
                 pairind = [];
-                if thisind <=20  % only pair half the time
-                    if rand()<0.5
-                        % a random index from same group of five but not itself
-                        pairind = (floor((thisind-1)/5))*5 + randsample(find(1:5~=(rem(thisind-1,5)+1)),1);
-                    end
-%                     continue; % don't mess with forces
-                else
-                    continue;
-                end
+%                 if thisind <=20  % only pair half the time
+%                     if rand()<0.5
+%                         % a random index from same group of five but not itself
+%                         pairind = (floor((thisind-1)/5))*5 + randsample(find(1:5~=(rem(thisind-1,5)+1)),1);
+%                     end
+% %                     continue; % don't mess with forces
+%                 else
+%                     continue;
+%                 end
                 % pr(inds(i)) = pr(inds(i)) + randn(1)*pr(inds(i))/factor;
                 movement = randn(1)/factor;%*max(0.1,pr(thisind));
                 pr(thisind) = pr(thisind) + movement;
@@ -263,7 +263,8 @@ function p = fit_levels(file, num, modelfun, howtofit, pstart)
 %         p(6:10) = p(6:10) - mean(p(6:10));
 %         p(11:15) = p(11:15) - mean(p(11:15));
 %         p(16:20) = p(16:20) - mean(p(16:20));
-        p(21:end) = abs(p(21:end));
+        %p(21:end) = abs(p(21:end));
+        p(1:20) = abs(p(1:20));
         % enforce homopolymer levels
         
 %         % modify the total force
