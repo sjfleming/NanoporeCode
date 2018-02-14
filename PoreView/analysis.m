@@ -115,9 +115,7 @@ classdef analysis < handle
                 try
                     e = load(datafile);
                 catch ex
-                    display('Error loading requested event files.');
-                    events = cell(0);
-                    return;
+                    display(['Error loading requested event file: ' datafile]);
                 end
                 events = [events; e.events];
             end
@@ -451,10 +449,11 @@ classdef analysis < handle
             
         end
         
-        function [yy,xx] = doEventHistogram(events, varargin)
+        function [yy,xx,n] = doEventHistogram(events, varargin)
             % do a histogram of the current of each event
             % return xx, the current axis, and yy, a matrix of events by
-            % counts (row by column)
+            % counts (row by column).
+            % optional output 'n' is the event indices in order
             % to plot hist of each event, try
             % >> stairs(xx,yy')
             % or for the cumulative histogram of all events, try
@@ -465,10 +464,11 @@ classdef analysis < handle
             
             % pare down events according to user input
             logic = analysis.getLogic(events, varargin{:});
+            n = find(logic);
             events = events(logic);
             
-            digitization = 1/10 * 0.30517578125 * 3;
-            xx = 0:digitization:100;
+            digitization = 1/10 * 0.30517578125 * 3 * 5;
+            xx = -50:digitization:200;
 
             yy = zeros(numel(events),numel(xx));
             sd = [];
@@ -489,6 +489,7 @@ classdef analysis < handle
                 chunks = ceil(diff(events{i}.index)/2^22);
                 for j = 0:chunks-1
                     d = sd.get([events{i}.index(1) + j*2^22, min(events{i}.index(2), events{i}.index(1) + (j+1)*2^22)], fsigs(1))*1000; % current in pA
+%                     d = medfilt1(d,100);
                     [y,~] = hist(d,xx);
                     yy(i,:) = y;
                 end
@@ -577,10 +578,13 @@ classdef analysis < handle
                 case 'last'
                     y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
             end
+            if ~in.normalizecurrent
+                y = y .* cellfun(@(x) x.open_pore_current_mean, events);
+            end
             
             % plot
             f = figure(in.figure);
-            if in.inverted == true
+            if ~in.normalizecurrent && in.inverted == true
                 y = 1-y;
             end
             ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
@@ -591,6 +595,9 @@ classdef analysis < handle
             plot(cellfun(@(x) x.duration, events(~ended_manually))*1000, y(~ended_manually),'o','markersize',3,'color',in.color)
             set(gca,'xscale','log','fontsize',14,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
+            if ~in.normalizecurrent
+                ylim([0 Inf])
+            end
             xlim([1e-2 2e5])
             % title(in.title)
             if any(cell2mat(cellfun(@(x) strcmp(x,'voltage'), varargin, 'uniformoutput', false)))
@@ -601,6 +608,9 @@ classdef analysis < handle
             xlabel('Duration (ms)')
             if in.inverted == false
                 ylabel('I / I_0');
+                if ~in.normalizecurrent
+                    ylabel('Current (pA)')
+                end
                 try
                     annotation('textbox', [0.7 0.9 0 0], 'String', ...
                         char(unique(cellfun(@(x) [x.file(end-27:end-20), '\_', x.file(end-7:end-4)], events, 'uniformoutput', false))), ...
@@ -648,12 +658,15 @@ classdef analysis < handle
                 case 'last'
                     y = cellfun(@(x) x.levels{end}.current_mean / x.open_pore_current_mean, events);
             end
+            if ~in.normalizecurrent
+                y = y .* cellfun(@(x) x.open_pore_current_mean, events);
+            end
             ended_manually = cellfun(@(x) isfield(x,'ended_manually') && x.ended_manually, events);
             duration = cellfun(@(x) x.duration, events)*1000;
             
             % plot
             f = figure(in.figure);
-            if in.inverted == true
+            if ~in.normalizecurrent && in.inverted == true
                 y = 1-y;
             end
             
@@ -676,10 +689,16 @@ classdef analysis < handle
             end
             set(gca,'xscale','log','fontsize',14,'LooseInset',[0 0 0 0],'OuterPosition',[0 0 0.99 1])
             ylim([0 1])
+            if ~in.normalizecurrent
+                ylim([0 Inf])
+            end
             title('Interactive event scatter plot')
             xlabel('Duration (ms)')
             if in.inverted == false
                 ylabel('I / I_0');
+                if ~in.normalizecurrent
+                    ylabel('Current (pA)')
+                end
             else
                 ylabel('\DeltaI / I_0');
             end
@@ -956,8 +975,8 @@ classdef analysis < handle
                     else
                         savefile = in.savefile;
                     end
-                    save(savefile,'events'); % save data
-                    display(['Saved event data in ' savefile])
+                    %save(savefile,'events'); % save data
+                    %display(['Saved event data in ' savefile])
                 catch ex
                     display(['Trouble saving to specified directory ' savefile])
                 end
@@ -1416,7 +1435,7 @@ classdef analysis < handle
                 
                 % check and make sure we should look here
                 d = obj.downsample_pointwise([possibleStartInds(i)-pad, possibleEndInds(i)+pad]*dt/obj.sigdata.si, 10000);
-                if ~any(abs(d(:,end))<abs(g_m*obj.in.voltage/obj.in.voltagescaling)) % if no events will be found here
+                if ~any(abs(d(:,2))<abs(g_m*obj.in.voltage/obj.in.voltagescaling)) % if no events will be found here (filtered current is channel 2)
                     continue; % skip this one
                 end
                 
@@ -1492,6 +1511,7 @@ classdef analysis < handle
                 if end_inds(i)<start_inds(i)
                     start_inds(i) = NaN;
                     end_inds(i) = NaN;
+                    display('issue')
                 end
                 
             end
