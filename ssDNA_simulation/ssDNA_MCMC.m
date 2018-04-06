@@ -83,6 +83,10 @@ classdef ssDNA_MCMC < handle
             
             % initialize configuration of ssDNA
             if ~isempty(obj.in.initial_coordinates)
+                if size(obj.in.initial_coordinates,1) ~= obj.N
+                    disp(['Expected ' num2str(obj.N) ' Kuhn segments, but only ' ...
+                        num2str(size(obj.in.initial_coordinates,1)) ' initial coordinates were specified.'])
+                end
                 obj.initial_coordinates = obj.in.initial_coordinates(1:obj.N,:);
             else
                 obj.initial_coordinates = [zeros(obj.N,2), (0:obj.N-1)'*obj.l_k];
@@ -307,8 +311,10 @@ classdef ssDNA_MCMC < handle
                 obj.plot_snapshot(i, fig);
             end
             zlim([min(cellfun(@(d) min(d(:,3)), obj.coordinates)), max(cellfun(@(d) max(d(:,3)), obj.coordinates))])
-            xlim([-5, 5])
-            ylim([-5, 5])
+            xlim([min(cellfun(@(d) min(d(:,1)), obj.coordinates)), max(cellfun(@(d) max(d(:,1)), obj.coordinates))])
+            ylim([min(cellfun(@(d) min(d(:,2)), obj.coordinates)), max(cellfun(@(d) max(d(:,2)), obj.coordinates))])
+            %xlim([-5, 5])
+            %ylim([-5, 5])
             axis equal
             f = fig;
         end

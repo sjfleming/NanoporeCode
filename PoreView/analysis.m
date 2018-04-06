@@ -391,7 +391,13 @@ classdef analysis < handle
                 states{i}.level_stdv = event.model_levels{i}.stdev;
                 states{i}.stdv_mean = event.model_levels{i}.stdv_mean;
             end
-            out = viterbi_assignment(observations, states, [], []);
+            
+%             p.p_stay = 0.05;
+%             p.p_back = 0.01;
+%             p.p_skip = 0.05;
+%             p.p_forward = 0.898;
+            
+            out = viterbi_assignment(observations, states, p, []);
             
             % assign outputs
             event.level_alignment.model_level_assignment = out.state_indices;
@@ -1221,6 +1227,16 @@ classdef analysis < handle
                 timing = cell2mat(cellfun(@(x) [x.start_time, x.end_time], event.levels, 'uniformoutput', false));
                 means = cellfun(@(x) x.current_mean, event.levels) / normalization;
                 line((timing'-timing(1,1))*timefactor,(means*[1,1])','LineWidth',2);
+                
+%                 % technicolor level plotting
+%                 a = 0;
+%                 for i = 1:numel(event.levels)
+%                     inds = [find(d(:,1)>event.levels{i}.start_time,1,'first'), find(d(:,1)>event.levels{i}.end_time,1,'first')];
+%                     hold on
+%                     plot(linspace(a,a+event.levels{i}.duration,diff(inds)+1),d(inds(1):inds(2),2)*obj.in.currentscaling/normalization)
+%                     a = a + event.levels{i}.duration;
+%                 end
+                
             end
             
             % create a title from the event data

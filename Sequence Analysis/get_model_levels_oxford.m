@@ -91,7 +91,7 @@ function [pA, pA_std, std_mean] = get_model_levels_oxford(seq, measured_levels, 
         display('Trouble doing level scaling!!!!! (bottom level)')
     end
     %display(['[' num2str(bottom) ', ' num2str(top) ']'])
-    pA = (pA-min(pA))*(top-bottom)/(range(pA)) + bottom;
-    pA_std = pA_std*(top-bottom)/(range(pA));
+    %pA = (pA-min(pA))*(top-bottom)/(range(pA)) + bottom;
+    %pA_std = pA_std*(top-bottom)/(range(pA));
 
 end
